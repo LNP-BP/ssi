@@ -19,6 +19,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[macro_use]
+extern crate clap;
+
+use clap::Parser;
+use ssi::{Algo, Chain, Ssi};
+
+#[derive(Parser, Clone, Debug)]
+pub struct Args {
+    /// Command to execute
+    #[clap(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum Command {
+    /// Generate a new identity - a pair of public and private keys.
+    New {
+        #[clap(short, long, default_value = "bip340")]
+        algo: Algo,
+
+        #[clap(short, long, default_value = "bitcoin")]
+        chain: Chain,
+
+        /// Vanity prefix
+        #[clap(long)]
+        prefix: Option<String>,
+
+        /// Number of threads to run vanity generation
+        #[clap(short, long, requires = "prefix", default_value = "8")]
+        threads: u8,
+    },
+}
+
 fn main() {
-    println!("Hello, world!");
+    let args = Args::parse();
+
+    match args.command {
+        Command::New {
+            algo: _,
+            chain,
+            prefix,
+            threads,
+        } => {
+            eprintln!("Generating new identity....");
+            let ssi = match prefix {
+                Some(prefix) => Ssi::vanity(&prefix, chain, threads),
+                None => Ssi::new(chain),
+            };
+            println!("{ssi}");
+        }
+    }
 }

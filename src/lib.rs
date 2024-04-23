@@ -22,16 +22,37 @@
 #[macro_use]
 extern crate amplify;
 
-use amplify::{Bytes, Display};
-use baid58::{Chunking, FromBaid58, ToBaid58, CHUNKING_32};
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+use amplify::{Bytes, Display};
+use baid58::{Baid58ParseError, Chunking, FromBaid58, ToBaid58, CHUNKING_32};
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
 pub enum Algo {
     #[default]
+    #[display("bip340")]
     Bip340,
     // Ed25519,
+    #[display("other({0})")]
     Other(u8),
+}
+
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
+#[display("unknown algorithm '{0}'")]
+pub struct UnknownAlgo(String);
+
+impl FromStr for Algo {
+    type Err = UnknownAlgo;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bip340" | "Bip340" | "BIP340" => Ok(Algo::Bip340),
+            s => Err(UnknownAlgo(s.to_owned())),
+        }
+    }
 }
 
 impl From<Algo> for u8 {
@@ -52,13 +73,31 @@ impl From<u8> for Algo {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Display)]
+#[display(lowercase)]
 #[non_exhaustive]
 pub enum Chain {
     #[default]
     Bitcoin,
     Liquid,
+    #[display("other({0})")]
     Other(u8),
+}
+
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
+#[display("unknown chain '{0}'")]
+pub struct UnknownChain(String);
+
+impl FromStr for Chain {
+    type Err = UnknownChain;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bitcoin" => Ok(Chain::Bitcoin),
+            "liquid" => Ok(Chain::Liquid),
+            s => Err(UnknownChain(s.to_owned())),
+        }
+    }
 }
 
 impl From<Chain> for u8 {
@@ -93,28 +132,39 @@ impl ToBaid58<32> for Ssi {
     const CHUNKING: Option<Chunking> = CHUNKING_32;
 
     fn to_baid58_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
+    fn to_baid58_string(&self) -> String { self.to_string() }
 }
 
 impl From<Ssi> for [u8; 32] {
     fn from(ssi: Ssi) -> Self {
         let mut buf = [0u8; 32];
-        buf[0] = ssi.algo.into();
+        buf[0..30].copy_from_slice(ssi.key.as_slice());
+        buf[30] = ssi.algo.into();
         buf[31] = ssi.chain.into();
-        buf[1..31].copy_from_slice(ssi.key.as_slice());
         buf
     }
 }
 
 impl From<[u8; 32]> for Ssi {
     fn from(value: [u8; 32]) -> Self {
-        let algo = Algo::from(value[0]);
+        let key = Bytes::from_slice_unsafe(&value[0..30]);
+        let algo = Algo::from(value[30]);
         let chain = Chain::from(value[31]);
-        let key = Bytes::from_slice_unsafe(&value[1..31]);
         Self { algo, key, chain }
     }
 }
 
 impl FromBaid58<32> for Ssi {}
+
+impl Display for Ssi {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{::<.2}", self.to_baid58()) }
+}
+impl FromStr for Ssi {
+    type Err = Baid58ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_baid58_maybe_chunked_str(s, ':', '#')
+    }
+}
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
 #[display("invalid public key")]
@@ -129,6 +179,43 @@ impl TryFrom<Ssi> for secp256k1::XOnlyPublicKey {
 }
 
 impl Ssi {
+    pub fn new(chain: Chain) -> Self {
+        use rand::thread_rng;
+        use secp256k1::SECP256K1;
+        loop {
+            let sk = secp256k1::SecretKey::new(&mut thread_rng());
+            let (pk, _) = sk.x_only_public_key(&SECP256K1);
+            let data = pk.serialize();
+            if data[30] == u8::from(Algo::Bip340) && data[31] == u8::from(chain) {
+                let mut key = [0u8; 30];
+                key.copy_from_slice(&data[0..30]);
+                return Self {
+                    chain,
+                    algo: Algo::Bip340,
+                    key: key.into(),
+                };
+            }
+        }
+    }
+
+    pub fn vanity(prefix: &str, chain: Chain, threads: u8) -> Self {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        for _ in 0..threads {
+            let tx = tx.clone();
+            let prefix = prefix.to_owned();
+            std::thread::spawn(move || {
+                loop {
+                    let new = Self::new(chain);
+                    let start = format!("ssi:{prefix}");
+                    if new.to_string().starts_with(&start) {
+                        tx.send(new).expect("unable to send key");
+                    }
+                }
+            });
+        }
+        rx.recv().expect("threading failed")
+    }
+
     pub fn from_bip340(key: secp256k1::XOnlyPublicKey) -> Self {
         let bytes = key.serialize();
         Self::from(bytes)
