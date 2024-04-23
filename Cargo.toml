@@ -1,0 +1,12 @@
+[package]
+name = "s2id"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ssi"
+
+[dependencies]
+amplify = "4.6.0"
+baid58 = "0.4.4"
+secp256k1 = "0.29.0"
