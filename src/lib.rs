@@ -19,7 +19,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amplify::Bytes32;
+#[macro_use]
+extern crate amplify;
+
+use amplify::{Bytes, Display};
 use baid58::{Chunking, FromBaid58, ToBaid58, CHUNKING_32};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
@@ -80,45 +83,54 @@ impl From<u8> for Chain {
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Ssi {
-    pub algo: Algo,
-    pub key: Bytes32,
-    pub chain: Chain,
+    chain: Chain,
+    algo: Algo,
+    key: Bytes<30>,
 }
 
-impl ToBaid58<34> for Ssi {
+impl ToBaid58<32> for Ssi {
     const HRI: &'static str = "ssi";
     const CHUNKING: Option<Chunking> = CHUNKING_32;
 
-    fn to_baid58_payload(&self) -> [u8; 34] { <[u8; 34]>::from(*self) }
+    fn to_baid58_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
 }
 
-impl From<Ssi> for [u8; 34] {
+impl From<Ssi> for [u8; 32] {
     fn from(ssi: Ssi) -> Self {
-        let mut buf = [0u8; 34];
+        let mut buf = [0u8; 32];
         buf[0] = ssi.algo.into();
-        buf[33] = ssi.chain.into();
-        buf[1..33].copy_from_slice(ssi.key.as_slice());
+        buf[31] = ssi.chain.into();
+        buf[1..31].copy_from_slice(ssi.key.as_slice());
         buf
     }
 }
 
-impl From<[u8; 34]> for Ssi {
-    fn from(value: [u8; 34]) -> Self {
+impl From<[u8; 32]> for Ssi {
+    fn from(value: [u8; 32]) -> Self {
         let algo = Algo::from(value[0]);
-        let chain = Chain::from(value[33]);
-        let key = Bytes32::from_slice_unsafe(&value[1..33]);
+        let chain = Chain::from(value[31]);
+        let key = Bytes::from_slice_unsafe(&value[1..31]);
         Self { algo, key, chain }
     }
 }
 
-impl FromBaid58<34> for Ssi {}
+impl FromBaid58<32> for Ssi {}
+
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
+#[display("invalid public key")]
+pub struct InvalidPublicKey;
+
+impl TryFrom<Ssi> for secp256k1::XOnlyPublicKey {
+    type Error = InvalidPublicKey;
+
+    fn try_from(ssi: Ssi) -> Result<Self, Self::Error> {
+        Self::from_slice(&<[u8; 32]>::from(ssi)).map_err(|_| InvalidPublicKey)
+    }
+}
 
 impl Ssi {
-    pub fn with_bip340(key: secp256k1::XOnlyPublicKey, chain: Chain) -> Self {
-        Self {
-            algo: Algo::Bip340,
-            key: key.serialize().into(),
-            chain,
-        }
+    pub fn from_bip340(key: secp256k1::XOnlyPublicKey) -> Self {
+        let bytes = key.serialize();
+        Self::from(bytes)
     }
 }
