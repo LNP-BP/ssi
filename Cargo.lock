@@ -288,6 +288,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ct-codecs"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3b7eb4404b8195a9abb6356f4ac07d8ba267045c8d6d220ac4dc992e6cc75df"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -316,6 +322,16 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "ec25519"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdfd533a2fc01178c738c99412ae1f7e1ad2cb37c2e14bfd87e9d4618171c825"
+dependencies = [
+ "ct-codecs",
+ "getrandom",
 ]
 
 [[package]]
@@ -546,6 +562,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossbeam-channel",
+ "ec25519",
  "fluent-uri",
  "mnemonic",
  "percent-encoding",

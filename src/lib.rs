@@ -28,9 +28,12 @@ mod identity;
 mod secret;
 mod public;
 mod bip340;
+mod ed25519;
 
 mod runtime;
 
+pub use bip340::Bip340Secret;
+pub use ed25519::Ed25519Secret;
 pub use identity::{Ssi, SsiParseError, Uid};
 pub use public::{
     Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig, UnknownAlgo, UnknownChain,

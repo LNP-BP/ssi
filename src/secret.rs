@@ -19,10 +19,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::str::FromStr;
 
 use aes::cipher::generic_array::GenericArray;
@@ -30,64 +27,51 @@ use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
 use sha2::{Digest, Sha256};
 
-use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
-use crate::{Chain, SsiPub};
+use crate::baid64::Baid64ParseError;
+use crate::{Algo, Bip340Secret, Chain, Ed25519Secret, SsiPub, SsiSig};
 
-#[derive(Clone, Eq, PartialEq)]
-pub struct SsiSecret(pub(crate) secp256k1::SecretKey);
-
-impl Ord for SsiSecret {
-    fn cmp(&self, other: &Self) -> Ordering { self.secret_bytes().cmp(&other.secret_bytes()) }
-}
-
-impl PartialOrd for SsiSecret {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-impl Hash for SsiSecret {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.secret_bytes().hash(state) }
-}
-
-impl DisplayBaid64 for SsiSecret {
-    const HRI: &'static str = "ssi:priv";
-    const CHUNKING: bool = false;
-    const PREFIX: bool = true;
-    const EMBED_CHECKSUM: bool = true;
-    const MNEMONIC: bool = false;
-
-    fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }
-}
-
-impl FromBaid64Str for SsiSecret {}
-
-impl From<SsiSecret> for [u8; 32] {
-    fn from(ssi: SsiSecret) -> Self { ssi.0.secret_bytes() }
-}
-
-impl From<[u8; 32]> for SsiSecret {
-    fn from(value: [u8; 32]) -> Self {
-        Self(secp256k1::SecretKey::from_slice(&value).expect("invalid secret key"))
-    }
-}
-
-impl Display for SsiSecret {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display, From)]
+#[display(inner)]
+pub enum SsiSecret {
+    #[from]
+    Bip340(Bip340Secret),
+    #[from]
+    Ed25519(Ed25519Secret),
 }
 
 impl FromStr for SsiSecret {
     type Err = Baid64ParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Self::from_baid64_str(s) }
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("ssi:bip340-priv") {
+            Bip340Secret::from_str(s).map(Self::Bip340)
+        } else {
+            Ed25519Secret::from_str(s).map(Self::Ed25519)
+        }
+    }
 }
 
 impl SsiSecret {
-    pub fn vanity(prefix: &str, chain: Chain, threads: u8) -> Self {
+    pub fn new(algo: Algo, chain: Chain) -> Self {
+        match algo {
+            Algo::Ed25519 => Self::new_ed25519(chain),
+            Algo::Bip340 => Self::new_bip340(chain),
+            Algo::Other(other) => panic!("unsupported algorithm {}", other),
+        }
+    }
+
+    pub fn new_ed25519(chain: Chain) -> Self { Self::Ed25519(Ed25519Secret::new(chain)) }
+
+    pub fn new_bip340(chain: Chain) -> Self { Self::Bip340(Bip340Secret::new(chain)) }
+
+    pub fn vanity(prefix: &str, algo: Algo, chain: Chain, threads: u8) -> Self {
         let (tx, rx) = crossbeam_channel::bounded(1);
         for _ in 0..threads {
             let tx = tx.clone();
             let prefix = prefix.to_owned();
             std::thread::spawn(move || {
                 loop {
-                    let sk = Self::new(chain);
+                    let sk = Self::new(algo, chain);
                     let pk = sk.to_public();
                     let start = format!("ssi:{prefix}");
                     if pk.to_string().starts_with(&start) {
@@ -99,17 +83,31 @@ impl SsiSecret {
         rx.recv().expect("threading failed")
     }
 
+    pub fn to_public(&self) -> SsiPub {
+        match self {
+            SsiSecret::Bip340(sk) => sk.to_public(),
+            SsiSecret::Ed25519(sk) => sk.to_public(),
+        }
+    }
+
+    pub fn sign(&self, msg: [u8; 32]) -> SsiSig {
+        match self {
+            SsiSecret::Bip340(sk) => sk.sign(msg),
+            SsiSecret::Ed25519(sk) => sk.sign(msg),
+        }
+    }
+
     pub fn encrypt(&mut self, passwd: impl AsRef<str>) {
         let key = Sha256::digest(passwd.as_ref().as_bytes());
         let key = GenericArray::from_slice(key.as_slice());
         let cipher = Aes256::new(key);
 
-        let mut source = self.0.secret_bytes().to_vec();
+        let mut source = self.to_vec();
         for chunk in source.chunks_mut(16) {
             let block = Block::from_mut_slice(chunk);
             cipher.encrypt_block(block);
         }
-        self.0 = secp256k1::SecretKey::from_slice(&source).expect("same size")
+        self.replace(&source);
     }
 
     pub fn decrypt(&mut self, passwd: impl AsRef<str>) {
@@ -117,15 +115,31 @@ impl SsiSecret {
         let key = GenericArray::from_slice(key.as_slice());
         let cipher = Aes256::new(key);
 
-        let mut source = self.0.secret_bytes().to_vec();
+        let mut source = self.to_vec();
         for chunk in source.chunks_mut(16) {
             let block = Block::from_mut_slice(chunk);
             cipher.decrypt_block(block);
         }
-        self.0 = secp256k1::SecretKey::from_slice(&source).expect("same size")
+        self.replace(&source);
     }
 
-    pub fn secret_bytes(&self) -> [u8; 32] { self.0.secret_bytes() }
+    pub fn to_vec(&self) -> Vec<u8> {
+        match self {
+            SsiSecret::Bip340(sk) => sk.0.secret_bytes().to_vec(),
+            SsiSecret::Ed25519(sk) => sk.0.to_vec(),
+        }
+    }
+
+    fn replace(&mut self, secret: &[u8]) {
+        match self {
+            SsiSecret::Bip340(sk) => {
+                sk.0 = secp256k1::SecretKey::from_slice(&secret).expect("same size")
+            }
+            SsiSecret::Ed25519(sk) => {
+                sk.0 = ec25519::SecretKey::from_slice(&secret).expect("same size")
+            }
+        }
+    }
 }
 
 impl From<SsiSecret> for SsiPub {

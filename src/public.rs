@@ -31,9 +31,10 @@ use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 #[non_exhaustive]
 pub enum Algo {
     #[default]
+    #[display("ed25519")]
+    Ed25519,
     #[display("bip340")]
     Bip340,
-    // Ed25519,
     #[display("other({0})")]
     Other(u8),
 }
@@ -47,6 +48,7 @@ impl FromStr for Algo {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "ed25519" | "Ed25519" | "ED25519" => Ok(Algo::Ed25519),
             "bip340" | "Bip340" | "BIP340" => Ok(Algo::Bip340),
             s => Err(UnknownAlgo(s.to_owned())),
         }
@@ -56,6 +58,7 @@ impl FromStr for Algo {
 impl From<Algo> for u8 {
     fn from(algo: Algo) -> Self {
         match algo {
+            Algo::Ed25519 => 0x13,
             Algo::Bip340 => 0,
             Algo::Other(v) => v,
         }
@@ -65,6 +68,7 @@ impl From<Algo> for u8 {
 impl From<u8> for Algo {
     fn from(value: u8) -> Self {
         match value {
+            0x13 => Algo::Ed25519,
             0 => Algo::Bip340,
             n => Algo::Other(n),
         }
@@ -101,8 +105,8 @@ impl FromStr for Chain {
 impl From<Chain> for u8 {
     fn from(chain: Chain) -> Self {
         match chain {
-            Chain::Bitcoin => 0,
-            Chain::Liquid => 1,
+            Chain::Bitcoin => 0xBC,
+            Chain::Liquid => 0x10,
             Chain::Other(v) => v,
         }
     }
@@ -111,8 +115,8 @@ impl From<Chain> for u8 {
 impl From<u8> for Chain {
     fn from(value: u8) -> Self {
         match value {
-            0 => Chain::Bitcoin,
-            1 => Chain::Liquid,
+            0xBC => Chain::Bitcoin,
+            0x10 => Chain::Liquid,
             n => Chain::Other(n),
         }
     }
@@ -151,6 +155,14 @@ impl From<[u8; 32]> for SsiPub {
 }
 
 impl SsiPub {
+    pub fn verify(self, msg: [u8; 32], sig: SsiSig) -> Result<(), InvalidSig> {
+        match self.algo {
+            Algo::Ed25519 => self.verify_ed25519(msg, sig),
+            Algo::Bip340 => self.verify_bip360(msg, sig),
+            Algo::Other(other) => Err(InvalidSig::UnsupportedAlgo(other)),
+        }
+    }
+
     pub fn to_byte_array(&self) -> [u8; 32] {
         let mut buf = [0u8; 32];
         buf[0..30].copy_from_slice(self.key.as_slice());
@@ -197,15 +209,19 @@ impl Display for SsiSig {
 #[display("invalid public key")]
 pub struct InvalidPubkey;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Display, Error)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Display, Error, From)]
 #[display(doc_comments)]
 pub enum InvalidSig {
     /// invalid signature data.
     InvalidData,
 
     /// invalid identity public key.
-    InvalidSsi,
+    #[from(InvalidPubkey)]
+    InvalidPubkey,
 
     /// signature doesn't match the given identity and a message.
     InvalidSig,
+
+    /// can't verify signature - unsupported signature method {0}.
+    UnsupportedAlgo(u8),
 }

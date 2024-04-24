@@ -107,7 +107,7 @@ impl Ssi {
     }
 
     pub fn check_integrity(&self) -> Result<(), InvalidSig> {
-        self.sig.verify(self.pk, self.to_message())
+        self.pk.verify(self.to_message(), self.sig)
     }
 }
 

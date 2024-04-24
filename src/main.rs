@@ -39,7 +39,7 @@ pub struct Args {
 pub enum Command {
     /// Generate a new identity - a pair of public and private keys.
     New {
-        #[clap(short, long, default_value = "bip340")]
+        #[clap(short, long, default_value = "ed25519")]
         algo: Algo,
 
         #[clap(short, long, default_value = "bitcoin")]
@@ -69,7 +69,7 @@ fn main() {
 
     match args.command {
         Command::New {
-            algo: _,
+            algo,
             chain,
             prefix,
             threads,
@@ -94,10 +94,10 @@ fn main() {
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
                 .expect("unable to read password");
 
-            eprintln!("Generating new identity....");
+            eprintln!("Generating new {algo} identity....");
             let mut secret = match prefix {
-                Some(prefix) => SsiSecret::vanity(&prefix, chain, threads),
-                None => SsiSecret::new(chain),
+                Some(prefix) => SsiSecret::vanity(&prefix, algo, chain, threads),
+                None => SsiSecret::new(algo, chain),
             };
 
             let ssi = Ssi::new(uids, expiry, &secret);
