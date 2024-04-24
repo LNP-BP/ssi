@@ -83,7 +83,9 @@ fn main() {
             let ssi = secret.to_public();
             println!("{ssi}");
 
-            secret.encrypt(passwd);
+            if !passwd.is_empty() {
+                secret.encrypt(passwd);
+            }
 
             let mut path = data_dir.clone();
             path.push(name);

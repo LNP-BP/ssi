@@ -22,6 +22,8 @@
 #[macro_use]
 extern crate amplify;
 
+pub mod baid64;
+
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
@@ -31,9 +33,10 @@ use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
 use amplify::{Bytes, Display};
-use baid58::{Baid58ParseError, Chunking, FromBaid58, ToBaid58, CHUNKING_32};
 use secp256k1::SECP256K1;
 use sha2::{Digest, Sha256};
+
+use crate::baid64::ToBaid64;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -133,12 +136,13 @@ pub struct Ssi {
     key: Bytes<30>,
 }
 
-impl ToBaid58<32> for Ssi {
+impl ToBaid64 for Ssi {
     const HRI: &'static str = "ssi";
-    const CHUNKING: Option<Chunking> = CHUNKING_32;
+    const CHUNKING: bool = true;
+    const PREFIX: bool = true;
+    const MNEMONIC: bool = false;
 
-    fn to_baid58_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
-    fn to_baid58_string(&self) -> String { self.to_string() }
+    fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
 }
 
 impl From<Ssi> for [u8; 32] {
@@ -160,17 +164,17 @@ impl From<[u8; 32]> for Ssi {
     }
 }
 
-impl FromBaid58<32> for Ssi {}
-
 impl Display for Ssi {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{::<.2}", self.to_baid58()) }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
 }
+/*
 impl FromStr for Ssi {
     type Err = Baid58ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_baid58_maybe_chunked_str(s, ':', '#')
     }
 }
+ */
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
 #[display("invalid public key")]
@@ -194,11 +198,13 @@ impl Ssi {
 #[derive(Clone, Eq, PartialEq)]
 pub struct SsiSecret(secp256k1::SecretKey);
 
-impl ToBaid58<32> for SsiSecret {
-    const HRI: &'static str = "ssi";
+impl ToBaid64 for SsiSecret {
+    const HRI: &'static str = "ssi:priv";
+    const CHUNKING: bool = false;
+    const PREFIX: bool = true;
+    const MNEMONIC: bool = false;
 
-    fn to_baid58_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }
-    fn to_baid58_string(&self) -> String { self.to_string() }
+    fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }
 }
 
 impl From<SsiSecret> for [u8; 32] {
@@ -211,17 +217,17 @@ impl From<[u8; 32]> for SsiSecret {
     }
 }
 
-impl FromBaid58<32> for SsiSecret {}
-
 impl Display for SsiSecret {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{:!<.2}", self.to_baid58()) }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
 }
+/*
 impl FromStr for SsiSecret {
     type Err = Baid58ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_baid58_maybe_chunked_str(s, '!', '#')
     }
 }
+ */
 
 impl SsiSecret {
     pub fn new(chain: Chain) -> Self {
