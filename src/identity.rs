@@ -44,7 +44,7 @@ pub enum UidParseError {
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display)]
-#[display("{name} <{schema}:{id}>")]
+#[display("{name} <{schema}:{id}>", alt = "{name} {schema}:{id}")]
 pub struct Uid {
     pub name: String,
     pub schema: String,

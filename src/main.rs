@@ -22,11 +22,14 @@
 #[macro_use]
 extern crate clap;
 
+use std::fs;
+use std::io::{stdin, Read};
+use std::path::PathBuf;
 use std::str::FromStr;
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use clap::Parser;
-use ssi::{Algo, Chain, Ssi, SsiRuntime, SsiSecret, Uid};
+use ssi::{Algo, Chain, InvalidSig, Ssi, SsiQuery, SsiRuntime, SsiSecret, Uid};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -37,15 +40,17 @@ pub struct Args {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
-    /// Generate a new identity - a pair of public and private keys.
+    /// Generate a new identity - a pair of public and private keys
     New {
+        /// Signature algorithm to use
         #[clap(short, long, default_value = "ed25519")]
         algo: Algo,
 
+        /// Which blockchain should be used for key revocation
         #[clap(short, long, default_value = "bitcoin")]
         chain: Chain,
 
-        /// Vanity prefix
+        /// Vanity prefix: "mine" an identity starting with certain string
         #[clap(long)]
         prefix: Option<String>,
 
@@ -53,21 +58,80 @@ pub enum Command {
         #[clap(short, long, requires = "prefix", default_value = "8")]
         threads: u8,
 
+        /// User identity information in form of "Name Surname ...
+        /// <schema:address>"
         #[clap(long, required = true)]
         uid: Vec<String>,
 
+        /// Create identity with no specific expiration date
         #[clap(long, required_unless_present = "expiry")]
         no_expiry: bool,
 
+        /// Set expiration date for the identity (in YYYY-MM-DD format)
         #[clap(conflicts_with = "no_expiry", required_unless_present = "no_expiry")]
         expiry: Option<String>,
     },
+
+    List {
+        /// List only signing identities
+        #[clap(short, long)]
+        signing: bool,
+    },
+
+    /// Sign a file or a message
+    Sign {
+        /// Text message to sign
+        #[clap(short, long, conflicts_with = "file")]
+        text: Option<String>,
+
+        /// File to create a detached signature for
+        #[clap(short, long)]
+        file: Option<PathBuf>,
+
+        /// Identity to use for the signature
+        ssi: SsiQuery,
+    },
+    /*
+    Verify {
+        /// Signature certificate to verify
+        signature: SsiCert,
+    },
+     */
 }
 
 fn main() {
     let args = Args::parse();
 
+    let mut runtime = SsiRuntime::load().expect("unable to load data");
+
     match args.command {
+        Command::List { signing } => {
+            let now = Utc::now();
+            for ssi in &runtime.identities {
+                if signing && !runtime.is_signing(ssi.pk.fingerprint()) {
+                    continue;
+                }
+                print!("{}\t", ssi.pk);
+                match ssi.expiry {
+                    None => print!("no expiry"),
+                    Some(e) => print!("{}", e.format("%Y-%m-%d")),
+                }
+                print!("\t");
+                match ssi.check_integrity() {
+                    Ok(_) if ssi.expiry >= Some(now) => println!("expired"),
+                    Ok(_) => println!("valid"),
+                    Err(InvalidSig::InvalidPubkey) => println!("invalid pubkey"),
+                    Err(InvalidSig::InvalidSig) => println!("invalid"),
+                    Err(InvalidSig::InvalidData) => println!("broken"),
+                    Err(InvalidSig::UnsupportedAlgo(_)) => println!("unsupported"),
+                }
+                for uid in &ssi.uids {
+                    println!("\t{uid}");
+                }
+            }
+            println!();
+        }
+
         Command::New {
             algo,
             chain,
@@ -89,8 +153,6 @@ fn main() {
                 .collect::<Result<_, _>>()
                 .expect("invalid UID");
 
-            let mut runtime = SsiRuntime::load().expect("unable to load data");
-
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
                 .expect("unable to read password");
 
@@ -111,6 +173,31 @@ fn main() {
             runtime.identities.insert(ssi);
 
             runtime.store().expect("unable to save data");
+        }
+
+        Command::Sign { text, file, ssi } => {
+            eprintln!("Signing with {ssi:?}");
+
+            let passwd = rpassword::prompt_password("Password for private key encryption: ")
+                .expect("unable to read password");
+            let msg = match (text, file) {
+                (Some(t), None) => t,
+                (None, Some(f)) => fs::read_to_string(f).expect("unable to read the file"),
+                (None, None) => {
+                    let mut s = String::new();
+                    stdin()
+                        .read_to_string(&mut s)
+                        .expect("unable to read standard input");
+                    s
+                }
+                _ => unreachable!(),
+            };
+            let signer = runtime
+                .find_signer(ssi, &passwd)
+                .expect("unknown signing identity");
+            eprintln!("Using key {signer})");
+            let cert = signer.sign(msg);
+            println!("{cert}");
         }
     }
 }

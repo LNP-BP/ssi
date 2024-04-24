@@ -27,7 +27,7 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use crate::baid64::Baid64ParseError;
-use crate::{Ssi, SsiParseError, SsiSecret};
+use crate::{Fingerprint, SecretParseError, Ssi, SsiPair, SsiParseError, SsiQuery, SsiSecret};
 
 #[derive(Debug, Display, Error, From)]
 #[display(inner)]
@@ -37,6 +37,9 @@ pub enum Error {
 
     #[from]
     Baid64(Baid64ParseError),
+
+    #[from]
+    Secret(SecretParseError),
 
     #[from]
     Ssi(SsiParseError),
@@ -107,5 +110,37 @@ impl SsiRuntime {
         Ok(())
     }
 
-    pub fn identities(&self) -> impl Iterator<Item = &Ssi> { self.identities.iter() }
+    pub fn find_identity(&self, query: impl Into<SsiQuery>) -> Option<&Ssi> {
+        let query = query.into();
+        self.identities.iter().find(|ssi| match query {
+            SsiQuery::Pub(pk) => ssi.pk == pk,
+            SsiQuery::Fp(fp) => ssi.pk.fingerprint() == fp,
+            SsiQuery::Id(ref id) => ssi.uids.iter().any(|uid| {
+                &uid.id == id ||
+                    &uid.to_string() == id ||
+                    &uid.name == id ||
+                    &format!("{}:{}", uid.schema, uid.id) == id
+            }),
+        })
+    }
+
+    pub fn find_signer(&self, query: impl Into<SsiQuery>, passwd: &str) -> Option<SsiPair> {
+        let ssi = self.find_identity(query.into()).cloned()?;
+        let sk = self.secrets.iter().find_map(|s| {
+            let mut s = (*s).clone();
+            if !passwd.is_empty() {
+                s.decrypt(passwd);
+            }
+            if s.to_public() == ssi.pk {
+                Some(s)
+            } else {
+                None
+            }
+        })?;
+        Some(SsiPair::new(ssi, sk))
+    }
+
+    pub fn is_signing(&self, fp: Fingerprint) -> bool {
+        self.secrets.iter().any(|s| s.fingerprint() == fp)
+    }
 }

@@ -47,7 +47,7 @@ impl Hash for Bip340Secret {
 }
 
 impl DisplayBaid64 for Bip340Secret {
-    const HRI: &'static str = "ssi:bip340-priv";
+    const HRI: &'static str = "bip340-priv";
     const CHUNKING: bool = false;
     const PREFIX: bool = true;
     const EMBED_CHECKSUM: bool = true;

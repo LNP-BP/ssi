@@ -23,7 +23,7 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use amplify::{Bytes, Display};
+use amplify::{Bytes, Bytes32, Display};
 
 use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 
@@ -105,7 +105,7 @@ impl FromStr for Chain {
 impl From<Chain> for u8 {
     fn from(chain: Chain) -> Self {
         match chain {
-            Chain::Bitcoin => 0xBC,
+            Chain::Bitcoin => 0xB7,
             Chain::Liquid => 0x10,
             Chain::Other(v) => v,
         }
@@ -115,7 +115,7 @@ impl From<Chain> for u8 {
 impl From<u8> for Chain {
     fn from(value: u8) -> Self {
         match value {
-            0xBC => Chain::Bitcoin,
+            0xB7 => Chain::Bitcoin,
             0x10 => Chain::Liquid,
             n => Chain::Other(n),
         }
@@ -163,6 +163,10 @@ impl SsiPub {
         }
     }
 
+    pub fn fingerprint(self) -> Fingerprint {
+        Fingerprint([self.key[0], self.key[1], self.key[2], self.key[3], self.key[4], self.key[5]])
+    }
+
     pub fn to_byte_array(&self) -> [u8; 32] {
         let mut buf = [0u8; 32];
         buf[0..30].copy_from_slice(self.key.as_slice());
@@ -173,7 +177,13 @@ impl SsiPub {
 }
 
 impl Display for SsiPub {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if !f.alternate() {
+            self.fmt_baid64(f)
+        } else {
+            write!(f, "{}", self.fingerprint())
+        }
+    }
 }
 
 impl FromStr for SsiPub {
@@ -224,4 +234,67 @@ pub enum InvalidSig {
 
     /// can't verify signature - unsupported signature method {0}.
     UnsupportedAlgo(u8),
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, From)]
+#[display(inner)]
+pub enum SsiQuery {
+    #[from]
+    Pub(SsiPub),
+    #[from]
+    Fp(Fingerprint),
+    #[from]
+    Id(String),
+}
+
+impl FromStr for SsiQuery {
+    type Err = Baid64ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() == 8 {
+            Fingerprint::from_str(s).map(Self::Fp)
+        } else if s.starts_with("ssi:") || (s.contains('-') && (s.len() == 48 || s.len() == 52)) {
+            SsiPub::from_str(s).map(Self::Pub)
+        } else {
+            Ok(SsiQuery::Id(s.to_owned()))
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From)]
+pub struct Fingerprint([u8; 6]);
+
+impl DisplayBaid64<6> for Fingerprint {
+    const HRI: &'static str = "";
+    const CHUNKING: bool = false;
+    const PREFIX: bool = false;
+    const EMBED_CHECKSUM: bool = false;
+    const MNEMONIC: bool = false;
+
+    fn to_baid64_payload(&self) -> [u8; 6] { self.0 }
+}
+
+impl FromBaid64Str<6> for Fingerprint {}
+
+impl Display for Fingerprint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
+}
+
+impl FromStr for Fingerprint {
+    type Err = Baid64ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { Self::from_baid64_str(s) }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct SsiCert {
+    pub fp: Fingerprint,
+    pub msg: Bytes32,
+    pub sig: SsiSig,
+}
+
+impl Display for SsiCert {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ssi:{fp}?msg={msg}&sig={sig}", fp = self.fp, msg = self.msg, sig = self.sig)
+    }
 }

@@ -47,7 +47,7 @@ impl Hash for Ed25519Secret {
 }
 
 impl DisplayBaid64<64> for Ed25519Secret {
-    const HRI: &'static str = "ssi:ed25519-priv";
+    const HRI: &'static str = "ed25519-priv";
     const CHUNKING: bool = false;
     const PREFIX: bool = true;
     const EMBED_CHECKSUM: bool = true;

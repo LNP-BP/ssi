@@ -19,34 +19,58 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
+use amplify::Bytes32;
+use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
 use crate::baid64::Baid64ParseError;
-use crate::{Algo, Bip340Secret, Chain, Ed25519Secret, SsiPub, SsiSig};
+use crate::{Algo, Bip340Secret, Chain, Ed25519Secret, Fingerprint, Ssi, SsiCert, SsiPub, SsiSig};
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Display, From)]
-#[display(inner)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum SsiSecret {
+    Bip340(Fingerprint, Bip340Secret),
+    Ed25519(Fingerprint, Ed25519Secret),
+}
+
+#[derive(Debug, Display, Error, From)]
+#[display(doc_comments)]
+pub enum SecretParseError {
+    /// incomplete private key data.
+    Incomplete,
+    /// invalid fingerprint data in private key. {0}.
+    InvalidFingerprint(Baid64ParseError),
     #[from]
-    Bip340(Bip340Secret),
-    #[from]
-    Ed25519(Ed25519Secret),
+    /// invalid secret key data. {0}
+    InvalidSecret(Baid64ParseError),
 }
 
 impl FromStr for SsiSecret {
-    type Err = Baid64ParseError;
+    type Err = SecretParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("ssi:bip340-priv") {
-            Bip340Secret::from_str(s).map(Self::Bip340)
+    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
+        s = s.trim_start_matches("ssi:");
+        let (fp, sk) = s.split_once('/').ok_or(SecretParseError::Incomplete)?;
+        let fp = Fingerprint::from_str(fp).map_err(SecretParseError::InvalidFingerprint)?;
+        if sk.starts_with("bip340-priv") {
+            Ok(Self::Bip340(fp, Bip340Secret::from_str(sk)?))
         } else {
-            Ed25519Secret::from_str(s).map(Self::Ed25519)
+            Ok(Self::Ed25519(fp, Ed25519Secret::from_str(sk)?))
+        }
+    }
+}
+
+impl Display for SsiSecret {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            SsiSecret::Bip340(fp, sk) => write!(f, "{fp}/{sk}"),
+            SsiSecret::Ed25519(fp, sk) => write!(f, "{fp}/{sk}"),
         }
     }
 }
@@ -60,9 +84,17 @@ impl SsiSecret {
         }
     }
 
-    pub fn new_ed25519(chain: Chain) -> Self { Self::Ed25519(Ed25519Secret::new(chain)) }
+    pub fn new_ed25519(chain: Chain) -> Self {
+        let sk = Ed25519Secret::new(chain);
+        let fp = sk.to_public().fingerprint();
+        Self::Ed25519(fp, sk)
+    }
 
-    pub fn new_bip340(chain: Chain) -> Self { Self::Bip340(Bip340Secret::new(chain)) }
+    pub fn new_bip340(chain: Chain) -> Self {
+        let sk = Bip340Secret::new(chain);
+        let fp = sk.to_public().fingerprint();
+        Self::Bip340(fp, sk)
+    }
 
     pub fn vanity(prefix: &str, algo: Algo, chain: Chain, threads: u8) -> Self {
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -83,17 +115,30 @@ impl SsiSecret {
         rx.recv().expect("threading failed")
     }
 
+    pub fn algorithm(&self) -> Algo {
+        match self {
+            SsiSecret::Bip340(_, _) => Algo::Bip340,
+            SsiSecret::Ed25519(_, _) => Algo::Ed25519,
+        }
+    }
+
+    pub fn fingerprint(&self) -> Fingerprint {
+        match self {
+            SsiSecret::Bip340(fp, _) | SsiSecret::Ed25519(fp, _) => *fp,
+        }
+    }
+
     pub fn to_public(&self) -> SsiPub {
         match self {
-            SsiSecret::Bip340(sk) => sk.to_public(),
-            SsiSecret::Ed25519(sk) => sk.to_public(),
+            SsiSecret::Bip340(_, sk) => sk.to_public(),
+            SsiSecret::Ed25519(_, sk) => sk.to_public(),
         }
     }
 
     pub fn sign(&self, msg: [u8; 32]) -> SsiSig {
         match self {
-            SsiSecret::Bip340(sk) => sk.sign(msg),
-            SsiSecret::Ed25519(sk) => sk.sign(msg),
+            SsiSecret::Bip340(_, sk) => sk.sign(msg),
+            SsiSecret::Ed25519(_, sk) => sk.sign(msg),
         }
     }
 
@@ -125,17 +170,17 @@ impl SsiSecret {
 
     pub fn to_vec(&self) -> Vec<u8> {
         match self {
-            SsiSecret::Bip340(sk) => sk.0.secret_bytes().to_vec(),
-            SsiSecret::Ed25519(sk) => sk.0.to_vec(),
+            SsiSecret::Bip340(_, sk) => sk.0.secret_bytes().to_vec(),
+            SsiSecret::Ed25519(_, sk) => sk.0.to_vec(),
         }
     }
 
     fn replace(&mut self, secret: &[u8]) {
         match self {
-            SsiSecret::Bip340(sk) => {
+            SsiSecret::Bip340(_, sk) => {
                 sk.0 = secp256k1::SecretKey::from_slice(&secret).expect("same size")
             }
-            SsiSecret::Ed25519(sk) => {
+            SsiSecret::Ed25519(_, sk) => {
                 sk.0 = ec25519::SecretKey::from_slice(&secret).expect("same size")
             }
         }
@@ -144,4 +189,33 @@ impl SsiSecret {
 
 impl From<SsiSecret> for SsiPub {
     fn from(sk: SsiSecret) -> Self { sk.to_public() }
+}
+
+#[derive(Clone, Eq, PartialEq, Display)]
+#[display("{pk}")]
+pub struct SsiPair {
+    pub pk: SsiPub,
+    pub sk: SsiSecret,
+    pub expiry: Option<DateTime<Utc>>,
+}
+
+impl SsiPair {
+    pub fn new(ssi: Ssi, sk: SsiSecret) -> Self {
+        SsiPair {
+            pk: ssi.pk,
+            sk,
+            expiry: ssi.expiry,
+        }
+    }
+
+    pub fn sign(&self, msg: impl AsRef<[u8]>) -> SsiCert {
+        let msg = Sha256::digest(msg);
+        let digest = Sha256::digest(msg);
+        let sig = self.sk.sign(digest.into());
+        SsiCert {
+            fp: self.pk.fingerprint(),
+            msg: Bytes32::from_byte_array(digest),
+            sig,
+        }
+    }
 }

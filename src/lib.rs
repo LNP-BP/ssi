@@ -36,7 +36,8 @@ pub use bip340::Bip340Secret;
 pub use ed25519::Ed25519Secret;
 pub use identity::{Ssi, SsiParseError, Uid};
 pub use public::{
-    Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig, UnknownAlgo, UnknownChain,
+    Algo, Chain, Fingerprint, InvalidPubkey, InvalidSig, SsiCert, SsiPub, SsiQuery, SsiSig,
+    UnknownAlgo, UnknownChain,
 };
 pub use runtime::{Error, SsiRuntime, SSI_DIR};
-pub use secret::SsiSecret;
+pub use secret::{SecretParseError, SsiPair, SsiSecret};

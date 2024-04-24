@@ -232,8 +232,8 @@ impl<const LEN: usize> Display for Baid64Display<LEN> {
 
         if self.chunking {
             let bytes = s.as_bytes();
-            f.write_str(&String::from_utf8_lossy(&bytes[..6]))?;
-            for chunk in bytes[6..].chunks(8) {
+            f.write_str(&String::from_utf8_lossy(&bytes[..8]))?;
+            for chunk in bytes[8..].chunks(7) {
                 write!(f, "-{}", &String::from_utf8_lossy(chunk))?;
             }
         } else {
