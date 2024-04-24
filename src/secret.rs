@@ -44,10 +44,10 @@ pub enum SsiSecret {
 pub enum SecretParseError {
     /// incomplete private key data.
     Incomplete,
-    /// invalid fingerprint data in private key. {0}.
+    /// invalid fingerprint data in private key - {0}.
     InvalidFingerprint(Baid64ParseError),
     #[from]
-    /// invalid secret key data. {0}
+    /// invalid secret key data - {0}
     InvalidSecret(Baid64ParseError),
 }
 

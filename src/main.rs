@@ -29,7 +29,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use ssi::{Algo, Chain, InvalidSig, Ssi, SsiQuery, SsiRuntime, SsiSecret, Uid};
+use ssi::{Algo, Chain, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -72,6 +72,7 @@ pub enum Command {
         expiry: Option<String>,
     },
 
+    /// List known identitites
     List {
         /// List only signing identities
         #[clap(short, long)]
@@ -91,12 +92,11 @@ pub enum Command {
         /// Identity to use for the signature
         ssi: SsiQuery,
     },
-    /*
+
     Verify {
         /// Signature certificate to verify
         signature: SsiCert,
     },
-     */
 }
 
 fn main() {
@@ -176,19 +176,19 @@ fn main() {
         }
 
         Command::Sign { text, file, ssi } => {
-            eprintln!("Signing with {ssi:?}");
+            eprintln!("Signing with {ssi} ...");
 
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
                 .expect("unable to read password");
             let msg = match (text, file) {
-                (Some(t), None) => t,
-                (None, Some(f)) => fs::read_to_string(f).expect("unable to read the file"),
+                (Some(t), None) => t.into_bytes(),
+                (None, Some(f)) => fs::read(f).expect("unable to read the file"),
                 (None, None) => {
                     let mut s = String::new();
                     stdin()
                         .read_to_string(&mut s)
                         .expect("unable to read standard input");
-                    s
+                    s.into_bytes()
                 }
                 _ => unreachable!(),
             };
@@ -198,6 +198,18 @@ fn main() {
             eprintln!("Using key {signer})");
             let cert = signer.sign(msg);
             println!("{cert}");
+        }
+
+        Command::Verify { signature } => {
+            eprint!("Verifying signature for message digest {} ... ", signature.msg);
+            let ssi = runtime
+                .find_identity(signature.fp)
+                .expect("unknown signing identity");
+            match ssi.pk.verify(signature.msg.to_byte_array(), signature.sig) {
+                Ok(_) => eprintln!("valid"),
+                Err(err) => eprintln!("invalid: {err}"),
+            }
+            println!();
         }
     }
 }

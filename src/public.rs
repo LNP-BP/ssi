@@ -23,7 +23,7 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use amplify::{Bytes, Bytes32, Display};
+use amplify::{hex, Bytes, Bytes32, Display};
 
 use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 
@@ -195,7 +195,7 @@ impl FromStr for SsiPub {
 pub struct SsiSig(pub(crate) [u8; 64]);
 
 impl DisplayBaid64<64> for SsiSig {
-    const HRI: &'static str = "ssi:sig";
+    const HRI: &'static str = "";
     const CHUNKING: bool = false;
     const PREFIX: bool = false;
     const EMBED_CHECKSUM: bool = false;
@@ -291,6 +291,41 @@ pub struct SsiCert {
     pub fp: Fingerprint,
     pub msg: Bytes32,
     pub sig: SsiSig,
+}
+
+#[derive(Debug, Display, Error, From)]
+#[display(doc_comments)]
+pub enum CertParseError {
+    /// SSI URI lacks signature or message information.
+    DataMissed,
+    /// invalid fingerprint data in private key - {0}.
+    InvalidFingerprint(Baid64ParseError),
+    /// invalid message digest - {0}.
+    #[from]
+    InvalidMessage(hex::Error),
+    #[from]
+    /// invalid signature data - {0}
+    InvalidSig(Baid64ParseError),
+}
+
+impl FromStr for SsiCert {
+    type Err = CertParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (fp, rest) = s
+            .trim_start_matches("ssi:")
+            .split_once('?')
+            .ok_or(CertParseError::DataMissed)?;
+        let (msg, rest) = rest
+            .trim_start_matches("msg=")
+            .split_once('&')
+            .ok_or(CertParseError::DataMissed)?;
+        let sig = rest.trim_start_matches("sig=");
+        let fp = Fingerprint::from_str(fp).map_err(CertParseError::InvalidFingerprint)?;
+        let msg = Bytes32::from_str(msg)?;
+        let sig = SsiSig::from_str(sig)?;
+        Ok(SsiCert { fp, msg, sig })
+    }
 }
 
 impl Display for SsiCert {

@@ -35,7 +35,7 @@ use crate::{InvalidSig, SsiPub, SsiSecret, SsiSig};
 #[display(doc_comments)]
 pub enum UidParseError {
     #[from]
-    /// non-UTF-8 UID. {0}
+    /// non-UTF-8 UID - {0}
     Utf8(Utf8Error),
     /// UID '{0}' without identity part
     NoId(String),
@@ -137,16 +137,16 @@ pub enum SsiParseError {
     InvalidUid(UidParseError),
 
     #[from]
-    /// SSI contains signature not matching the provided data. {0}
+    /// SSI contains signature not matching the provided data - {0}
     WrongSig(InvalidSig),
 
     #[from]
-    /// SSI contains non-parsable expiration date. {0}
+    /// SSI contains non-parsable expiration date - {0}
     WrongExpiry(chrono::ParseError),
 
-    /// SSI contains non-parsable public key. {0}
+    /// SSI contains non-parsable public key - {0}
     InvalidPub(Baid64ParseError),
-    /// SSI contains non-parsable signature. {0}
+    /// SSI contains non-parsable signature - {0}
     InvalidSig(Baid64ParseError),
 }
 
