@@ -93,10 +93,12 @@ pub enum Command {
         ssi: SsiQuery,
     },
 
+    /// Verify signature certificate
     Verify {
         /// Signature certificate to verify
         signature: SsiCert,
     },
+    //    Recover,
 }
 
 fn main() {
@@ -210,6 +212,20 @@ fn main() {
                 Err(err) => eprintln!("invalid: {err}"),
             }
             println!();
-        }
+        } /*
+          Command::Recover => {
+              use std::collections::HashSet;
+              let passwd = rpassword::prompt_password("Password for private key encryption: ")
+                  .expect("unable to read password");
+              let mut identities = HashSet::new();
+              for mut ssi in runtime.identities.iter().cloned() {
+                  let secret = runtime.find_signer(ssi.pk.fingerprint(), &passwd).unwrap();
+                  ssi.sig = secret.sk.sign(ssi.to_message());
+                  identities.push(ssi);
+              }
+              runtime.identities = identities;
+              runtime.store().unwrap()
+          }
+           */
     }
 }

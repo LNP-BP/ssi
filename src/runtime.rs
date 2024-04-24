@@ -24,6 +24,7 @@ pub const SSI_DIR: &'static str = "~/.ssi";
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use crate::baid64::Baid64ParseError;
@@ -62,6 +63,8 @@ impl SsiRuntime {
             .write(true)
             .create(true)
             .open(path)?;
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_mode(0o600);
         let reader = io::BufReader::new(file);
         let mut secrets = bset![];
         for line in reader.lines() {
@@ -76,6 +79,8 @@ impl SsiRuntime {
             .write(true)
             .create(true)
             .open(path)?;
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_mode(0o600);
         let reader = io::BufReader::new(file);
         let mut identities = set![];
         for line in reader.lines() {
