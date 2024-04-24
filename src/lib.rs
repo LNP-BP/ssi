@@ -28,6 +28,7 @@ use std::str::FromStr;
 
 use amplify::{Bytes, Display};
 use baid58::{Baid58ParseError, Chunking, FromBaid58, ToBaid58, CHUNKING_32};
+use secp256k1::SECP256K1;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -179,9 +180,47 @@ impl TryFrom<Ssi> for secp256k1::XOnlyPublicKey {
 }
 
 impl Ssi {
+    pub fn from_bip340(key: secp256k1::XOnlyPublicKey) -> Self {
+        let bytes = key.serialize();
+        Self::from(bytes)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct SsiSecret(secp256k1::SecretKey);
+
+impl ToBaid58<32> for SsiSecret {
+    const HRI: &'static str = "ssi";
+
+    fn to_baid58_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }
+    fn to_baid58_string(&self) -> String { self.to_string() }
+}
+
+impl From<SsiSecret> for [u8; 32] {
+    fn from(ssi: SsiSecret) -> Self { ssi.0.secret_bytes() }
+}
+
+impl From<[u8; 32]> for SsiSecret {
+    fn from(value: [u8; 32]) -> Self {
+        Self(secp256k1::SecretKey::from_slice(&value).expect("invalid secret key"))
+    }
+}
+
+impl FromBaid58<32> for SsiSecret {}
+
+impl Display for SsiSecret {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { write!(f, "{:!<.2}", self.to_baid58()) }
+}
+impl FromStr for SsiSecret {
+    type Err = Baid58ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_baid58_maybe_chunked_str(s, '!', '#')
+    }
+}
+
+impl SsiSecret {
     pub fn new(chain: Chain) -> Self {
         use rand::thread_rng;
-        use secp256k1::SECP256K1;
         loop {
             let sk = secp256k1::SecretKey::new(&mut thread_rng());
             let (pk, _) = sk.x_only_public_key(&SECP256K1);
@@ -189,11 +228,7 @@ impl Ssi {
             if data[30] == u8::from(Algo::Bip340) && data[31] == u8::from(chain) {
                 let mut key = [0u8; 30];
                 key.copy_from_slice(&data[0..30]);
-                return Self {
-                    chain,
-                    algo: Algo::Bip340,
-                    key: key.into(),
-                };
+                return Self(sk);
             }
         }
     }
@@ -205,10 +240,11 @@ impl Ssi {
             let prefix = prefix.to_owned();
             std::thread::spawn(move || {
                 loop {
-                    let new = Self::new(chain);
+                    let sk = Self::new(chain);
+                    let pk = sk.to_public();
                     let start = format!("ssi:{prefix}");
-                    if new.to_string().starts_with(&start) {
-                        tx.send(new).expect("unable to send key");
+                    if pk.to_string().starts_with(&start) {
+                        tx.send(sk).expect("unable to send key");
                     }
                 }
             });
@@ -216,8 +252,15 @@ impl Ssi {
         rx.recv().expect("threading failed")
     }
 
-    pub fn from_bip340(key: secp256k1::XOnlyPublicKey) -> Self {
-        let bytes = key.serialize();
-        Self::from(bytes)
+    pub fn to_public(&self) -> Ssi {
+        let (pk, _) = self.0.x_only_public_key(&SECP256K1);
+        let data = pk.serialize();
+        return Ssi::from(data);
     }
+
+    pub fn secret_bytes(&self) -> [u8; 32] { self.0.secret_bytes() }
+}
+
+impl From<SsiSecret> for Ssi {
+    fn from(sk: SsiSecret) -> Self { sk.to_public() }
 }

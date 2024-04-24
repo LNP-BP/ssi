@@ -22,8 +22,11 @@
 #[macro_use]
 extern crate clap;
 
+use std::fs;
+use std::path::PathBuf;
+
 use clap::Parser;
-use ssi::{Algo, Chain, Ssi};
+use ssi::{Algo, Chain, SsiSecret};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -49,11 +52,17 @@ pub enum Command {
         /// Number of threads to run vanity generation
         #[clap(short, long, requires = "prefix", default_value = "8")]
         threads: u8,
+
+        #[clap(short, long, default_value = "id")]
+        name: String,
     },
 }
 
 fn main() {
     let args = Args::parse();
+
+    let data_dir = PathBuf::from(shellexpand::tilde("~/.ssi").to_string());
+    fs::create_dir_all(&data_dir).expect("unable to initialize data directory");
 
     match args.command {
         Command::New {
@@ -61,13 +70,20 @@ fn main() {
             chain,
             prefix,
             threads,
+            name,
         } => {
             eprintln!("Generating new identity....");
-            let ssi = match prefix {
-                Some(prefix) => Ssi::vanity(&prefix, chain, threads),
-                None => Ssi::new(chain),
+            let secret = match prefix {
+                Some(prefix) => SsiSecret::vanity(&prefix, chain, threads),
+                None => SsiSecret::new(chain),
             };
+            let ssi = secret.to_public();
             println!("{ssi}");
+            let mut path = data_dir.clone();
+            path.push(name);
+            fs::write(&path, format!("{secret}")).expect("unable to save secret key");
+            path.set_extension("pub");
+            fs::write(&path, format!("{ssi}")).expect("unable to save public key");
         }
     }
 }
