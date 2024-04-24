@@ -25,10 +25,10 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
+use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use secp256k1::schnorr::Signature;
 use secp256k1::{Keypair, Message, SecretKey, XOnlyPublicKey, SECP256K1};
 
-use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 
 #[derive(Clone, Eq, PartialEq)]

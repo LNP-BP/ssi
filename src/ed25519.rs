@@ -26,9 +26,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::str::FromStr;
 
+use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use ec25519::{KeyPair, Noise, PublicKey, SecretKey, Seed, Signature};
 
-use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 
 #[derive(Clone, Eq, PartialEq)]

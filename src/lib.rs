@@ -22,8 +22,6 @@
 #[macro_use]
 extern crate amplify;
 
-pub mod baid64;
-
 mod identity;
 mod secret;
 mod public;

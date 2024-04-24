@@ -27,7 +27,8 @@ use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use crate::baid64::Baid64ParseError;
+use baid64::Baid64ParseError;
+
 use crate::{Fingerprint, SecretParseError, Ssi, SsiPair, SsiParseError, SsiQuery, SsiSecret};
 
 #[derive(Debug, Display, Error, From)]

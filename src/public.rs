@@ -24,8 +24,7 @@ use std::hash::Hash;
 use std::str::FromStr;
 
 use amplify::{hex, Bytes, Bytes32, Display};
-
-use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
+use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]

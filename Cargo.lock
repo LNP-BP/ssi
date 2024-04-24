@@ -133,6 +133,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1fdabc7756949593fe60f30ec81974b613357de856987752631dea1e3394c80"
 
 [[package]]
+name = "baid64"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b8b80494235048845f856b267a4a1d97df59fd14ed7ca92652f834ce93becc6"
+dependencies = [
+ "amplify",
+ "base64",
+ "mnemonic",
+ "sha2",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -558,6 +570,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "amplify",
+ "baid64",
  "base64",
  "chrono",
  "clap",

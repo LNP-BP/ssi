@@ -23,12 +23,12 @@ use std::collections::BTreeSet;
 use std::fmt::{self, Display, Formatter};
 use std::str::{FromStr, Utf8Error};
 
+use baid64::Baid64ParseError;
 use chrono::{DateTime, Utc};
 use fluent_uri::Uri;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 
-use crate::baid64::Baid64ParseError;
 use crate::{InvalidSig, SsiPub, SsiSecret, SsiSig};
 
 #[derive(Clone, Eq, PartialEq, Debug, Display, Error, From)]

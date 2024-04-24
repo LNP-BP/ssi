@@ -27,10 +27,10 @@ use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
 use amplify::Bytes32;
+use baid64::Baid64ParseError;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
-use crate::baid64::Baid64ParseError;
 use crate::{Algo, Bip340Secret, Chain, Ed25519Secret, Fingerprint, Ssi, SsiCert, SsiPub, SsiSig};
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
