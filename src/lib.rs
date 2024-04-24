@@ -24,11 +24,16 @@ extern crate amplify;
 
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
 use std::str::FromStr;
 
+use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
+use aes::{Aes256, Block};
 use amplify::{Bytes, Display};
 use baid58::{Baid58ParseError, Chunking, FromBaid58, ToBaid58, CHUNKING_32};
 use secp256k1::SECP256K1;
+use sha2::{Digest, Sha256};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -223,7 +228,7 @@ impl SsiSecret {
         use rand::thread_rng;
         loop {
             let sk = secp256k1::SecretKey::new(&mut thread_rng());
-            let (pk, _) = sk.x_only_public_key(&SECP256K1);
+            let (pk, _) = sk.x_only_public_key(SECP256K1);
             let data = pk.serialize();
             if data[30] == u8::from(Algo::Bip340) && data[31] == u8::from(chain) {
                 let mut key = [0u8; 30];
@@ -252,10 +257,36 @@ impl SsiSecret {
         rx.recv().expect("threading failed")
     }
 
+    pub fn encrypt(&mut self, passwd: impl AsRef<str>) {
+        let key = Sha256::digest(passwd.as_ref().as_bytes());
+        let key = GenericArray::from_slice(key.as_slice());
+        let cipher = Aes256::new(key);
+
+        let mut source = self.0.secret_bytes().to_vec();
+        for chunk in source.chunks_mut(16) {
+            let block = Block::from_mut_slice(chunk);
+            cipher.encrypt_block(block);
+        }
+        self.0 = secp256k1::SecretKey::from_slice(&source).expect("same size")
+    }
+
+    pub fn decrypt(&mut self, passwd: impl AsRef<str>) {
+        let key = Sha256::digest(passwd.as_ref().as_bytes());
+        let key = GenericArray::from_slice(key.as_slice());
+        let cipher = Aes256::new(key);
+
+        let mut source = self.0.secret_bytes().to_vec();
+        for chunk in source.chunks_mut(16) {
+            let block = Block::from_mut_slice(chunk);
+            cipher.decrypt_block(block);
+        }
+        self.0 = secp256k1::SecretKey::from_slice(&source).expect("same size")
+    }
+
     pub fn to_public(&self) -> Ssi {
-        let (pk, _) = self.0.x_only_public_key(&SECP256K1);
+        let (pk, _) = self.0.x_only_public_key(SECP256K1);
         let data = pk.serialize();
-        return Ssi::from(data);
+        Ssi::from(data)
     }
 
     pub fn secret_bytes(&self) -> [u8; 32] { self.0.secret_bytes() }

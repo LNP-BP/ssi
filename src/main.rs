@@ -72,13 +72,19 @@ fn main() {
             threads,
             name,
         } => {
+            let passwd = rpassword::prompt_password("Password for private key encryption: ")
+                .expect("unable to read password");
+
             eprintln!("Generating new identity....");
-            let secret = match prefix {
+            let mut secret = match prefix {
                 Some(prefix) => SsiSecret::vanity(&prefix, chain, threads),
                 None => SsiSecret::new(chain),
             };
             let ssi = secret.to_public();
             println!("{ssi}");
+
+            secret.encrypt(passwd);
+
             let mut path = data_dir.clone();
             path.push(name);
             fs::write(&path, format!("{secret}")).expect("unable to save secret key");
