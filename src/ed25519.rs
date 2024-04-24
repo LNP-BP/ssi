@@ -35,7 +35,7 @@ use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 pub struct Ed25519Secret(pub(crate) SecretKey);
 
 impl Ord for Ed25519Secret {
-    fn cmp(&self, other: &Self) -> Ordering { self.0.as_slice().cmp(&other.0.as_slice()) }
+    fn cmp(&self, other: &Self) -> Ordering { self.0.as_slice().cmp(other.0.as_slice()) }
 }
 
 impl PartialOrd for Ed25519Secret {
@@ -107,7 +107,7 @@ impl SsiPub {
     pub fn verify_ed25519(self, msg: [u8; 32], sig: SsiSig) -> Result<(), InvalidSig> {
         let sig = Signature::from_slice(&sig.0).map_err(|_| InvalidSig::InvalidData)?;
         let pk = PublicKey::try_from(self)?;
-        pk.verify(&msg, &sig).map_err(|err| {
+        pk.verify(msg, &sig).map_err(|err| {
             eprintln!("{err}");
             InvalidSig::InvalidSig
         })

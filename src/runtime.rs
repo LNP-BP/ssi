@@ -19,7 +19,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub const SSI_DIR: &'static str = "~/.ssi";
+pub const SSI_DIR: &str = "~/.ssi";
 
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
@@ -63,6 +63,7 @@ impl SsiRuntime {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
         let mut permissions = file.metadata()?.permissions();
         permissions.set_mode(0o600);
@@ -79,6 +80,7 @@ impl SsiRuntime {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
         let mut permissions = file.metadata()?.permissions();
         permissions.set_mode(0o600);

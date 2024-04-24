@@ -178,10 +178,10 @@ impl SsiSecret {
     fn replace(&mut self, secret: &[u8]) {
         match self {
             SsiSecret::Bip340(_, sk) => {
-                sk.0 = secp256k1::SecretKey::from_slice(&secret).expect("same size")
+                sk.0 = secp256k1::SecretKey::from_slice(secret).expect("same size")
             }
             SsiSecret::Ed25519(_, sk) => {
-                sk.0 = ec25519::SecretKey::from_slice(&secret).expect("same size")
+                sk.0 = ec25519::SecretKey::from_slice(secret).expect("same size")
             }
         }
     }
