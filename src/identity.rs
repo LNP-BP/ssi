@@ -25,7 +25,7 @@ use std::str::{FromStr, Utf8Error};
 
 use chrono::{DateTime, Utc};
 use fluent_uri::Uri;
-use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS};
+use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 
 use crate::baid64::Baid64ParseError;
@@ -53,7 +53,7 @@ pub struct Uid {
 
 impl Uid {
     pub fn from_url_str(s: &str) -> Result<Self, UidParseError> {
-        let s = percent_decode_str(s).decode_utf8()?;
+        let s = percent_decode_str(s).decode_utf8()?.replace('+', " ");
         Self::parse_str(&s)
     }
 
@@ -162,7 +162,7 @@ impl FromStr for Ssi {
         }
 
         let pk = uri.path().as_str();
-        let ssi = SsiPub::from_str(pk).map_err(SsiParseError::InvalidPub)?;
+        let pk = SsiPub::from_str(pk).map_err(SsiParseError::InvalidPub)?;
 
         let query = uri.query().ok_or(SsiParseError::Unsigned)?.as_str();
 
@@ -193,7 +193,7 @@ impl FromStr for Ssi {
             return Err(SsiParseError::Unsigned);
         };
         let ssi = Self {
-            pk: ssi,
+            pk,
             uids,
             expiry,
             sig,
@@ -206,16 +206,13 @@ impl FromStr for Ssi {
 
 impl Display for Ssi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        const SET: &AsciiSet = &CONTROLS.add(b'?').add(b'&').add(b'+').add(b'=');
+
         write!(f, "{}?", self.pk)?;
 
         for uid in &self.uids {
-            write!(
-                f,
-                "uid={}+{}:{}&",
-                utf8_percent_encode(&uid.name, CONTROLS),
-                utf8_percent_encode(&uid.schema, CONTROLS),
-                utf8_percent_encode(&uid.id, CONTROLS)
-            )?;
+            let uid = uid.to_string().replace(['<', '>'], "");
+            write!(f, "uid={}&", utf8_percent_encode(&uid, SET).to_string().replace(' ', "+"),)?;
         }
 
         if let Some(expiry) = self.expiry {

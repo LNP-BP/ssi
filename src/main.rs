@@ -53,7 +53,7 @@ pub enum Command {
         #[clap(short, long, requires = "prefix", default_value = "8")]
         threads: u8,
 
-        #[clap(long, num_args = 1..)]
+        #[clap(long, required = true)]
         uid: Vec<String>,
 
         #[clap(long, required_unless_present = "expiry")]

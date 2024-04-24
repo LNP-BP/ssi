@@ -25,7 +25,7 @@ use std::str::FromStr;
 
 use amplify::{Bytes, Display};
 
-use crate::baid64::{Baid64ParseError, FromBaid64Str, ToBaid64};
+use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -125,10 +125,11 @@ pub struct SsiPub {
     pub(crate) key: Bytes<30>,
 }
 
-impl ToBaid64 for SsiPub {
+impl DisplayBaid64 for SsiPub {
     const HRI: &'static str = "ssi";
     const CHUNKING: bool = true;
     const PREFIX: bool = true;
+    const EMBED_CHECKSUM: bool = false;
     const MNEMONIC: bool = false;
 
     fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
@@ -171,10 +172,11 @@ impl FromStr for SsiPub {
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, From)]
 pub struct SsiSig(pub(crate) [u8; 64]);
 
-impl ToBaid64<64> for SsiSig {
+impl DisplayBaid64<64> for SsiSig {
     const HRI: &'static str = "ssi:sig";
     const CHUNKING: bool = false;
     const PREFIX: bool = false;
+    const EMBED_CHECKSUM: bool = false;
     const MNEMONIC: bool = false;
 
     fn to_baid64_payload(&self) -> [u8; 64] { self.0 }

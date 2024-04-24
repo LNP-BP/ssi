@@ -30,7 +30,7 @@ use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
 use sha2::{Digest, Sha256};
 
-use crate::baid64::{Baid64ParseError, FromBaid64Str, ToBaid64};
+use crate::baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use crate::{Chain, SsiPub};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -48,10 +48,11 @@ impl Hash for SsiSecret {
     fn hash<H: Hasher>(&self, state: &mut H) { self.secret_bytes().hash(state) }
 }
 
-impl ToBaid64 for SsiSecret {
+impl DisplayBaid64 for SsiSecret {
     const HRI: &'static str = "ssi:priv";
     const CHUNKING: bool = false;
     const PREFIX: bool = true;
+    const EMBED_CHECKSUM: bool = true;
     const MNEMONIC: bool = false;
 
     fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }

@@ -29,32 +29,37 @@ pub const HRI_MAX_LEN: usize = 16;
 pub const BAID64_ALPHABET: &str =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$";
 
-fn check<const LEN: usize>(hri: &'static str, payload: [u8; LEN]) -> u32 {
+fn check<const LEN: usize>(hri: &'static str, payload: [u8; LEN]) -> [u8; 4] {
     let key = sha2::Sha256::digest(hri.as_bytes());
     let mut sha = sha2::Sha256::new_with_prefix(key);
     sha.update(&payload);
     let sha = sha.finalize();
-    u32::from_le_bytes([sha[0], sha[1], sha[1], sha[2]])
+    [sha[0], sha[1], sha[1], sha[2]]
 }
 
-pub trait ToBaid64<const LEN: usize = 32> {
+pub trait DisplayBaid64<const LEN: usize = 32> {
     const HRI: &'static str;
     const CHUNKING: bool;
     const PREFIX: bool;
+    const EMBED_CHECKSUM: bool;
     const MNEMONIC: bool;
 
     fn to_baid64_payload(&self) -> [u8; LEN];
-    fn to_baid64(&self) -> Baid64<LEN> {
-        Baid64::with(
+    fn to_baid64_string(&self) -> String { self.display_baid64().to_string() }
+    fn to_baid64_mnemonic(&self) -> String { self.display_baid64().mnemonic }
+    fn display_baid64(&self) -> Baid64Display<LEN> {
+        Baid64Display::with(
             Self::HRI,
             self.to_baid64_payload(),
             Self::CHUNKING,
             Self::PREFIX,
             Self::MNEMONIC,
+            Self::EMBED_CHECKSUM,
         )
     }
-    fn to_baid64_string(&self) -> String { self.to_baid64().to_string() }
-    fn fmt_baid64(&self, f: &mut Formatter) -> fmt::Result { Display::fmt(&self.to_baid64(), f) }
+    fn fmt_baid64(&self, f: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.display_baid64(), f)
+    }
 }
 
 #[derive(Debug, Display, Error, From)]
@@ -66,8 +71,12 @@ pub enum Baid64ParseError {
     /// invalid length of identifier {0}.
     InvalidLen(String),
 
-    /// invalid checksum value in {0}.
-    InvalidChecksum(String),
+    /// invalid checksum value in {0} - expected {1:#x} while found
+    /// {2:#x}.
+    InvalidChecksum(String, u32, u32),
+
+    /// invalid length of mnemonic in {0}.
+    InvalidMnemonicLen(String),
 
     #[from]
     #[display(inner)]
@@ -78,7 +87,7 @@ pub enum Baid64ParseError {
     Base64(base64::DecodeError),
 }
 
-pub trait FromBaid64Str<const LEN: usize = 32>: ToBaid64<LEN> + From<[u8; LEN]> {
+pub trait FromBaid64Str<const LEN: usize = 32>: DisplayBaid64<LEN> + From<[u8; LEN]> {
     fn from_baid64_str(mut s: &str) -> Result<Self, Baid64ParseError> {
         let orig = s;
 
@@ -86,7 +95,7 @@ pub trait FromBaid64Str<const LEN: usize = 32>: ToBaid64<LEN> + From<[u8; LEN]> 
         use base64::engine::general_purpose::NO_PAD;
         use base64::engine::GeneralPurpose;
 
-        let mut checksum = 0u32;
+        let mut checksum = None;
 
         if let Some((hri, rest)) = s.rsplit_once(':') {
             if hri != Self::HRI {
@@ -98,7 +107,10 @@ pub trait FromBaid64Str<const LEN: usize = 32>: ToBaid64<LEN> + From<[u8; LEN]> 
         if let Some((rest, sfx)) = s.split_once('#') {
             let mut mnemo = Vec::<u8>::with_capacity(4);
             mnemonic::decode(sfx, &mut mnemo)?;
-            checksum = u32::from_le_bytes([mnemo[0], mnemo[1], mnemo[2], mnemo[3]]);
+            if mnemo.len() != 4 {
+                return Err(Baid64ParseError::InvalidMnemonicLen(orig.to_string()));
+            }
+            checksum = Some([mnemo[0], mnemo[1], mnemo[2], mnemo[3]]);
             s = rest;
         }
 
@@ -112,14 +124,22 @@ pub trait FromBaid64Str<const LEN: usize = 32>: ToBaid64<LEN> + From<[u8; LEN]> 
         let engine = GeneralPurpose::new(&alphabet, NO_PAD);
         let data = engine.decode(s)?;
 
-        if data.len() != LEN {
+        if data.len() != LEN && data.len() != LEN + 4 {
             return Err(Baid64ParseError::InvalidLen(orig.to_owned()));
         }
         let mut payload = [0u8; LEN];
-        payload.copy_from_slice(&data);
+        payload.copy_from_slice(&data[..LEN]);
+        if data.len() == LEN + 4 {
+            checksum = Some([data[LEN], data[LEN + 1], data[LEN + 2], data[LEN + 3]]);
+        }
 
-        if checksum != check(Self::HRI, payload) {
-            return Err(Baid64ParseError::InvalidChecksum(orig.to_owned()));
+        let ck = check(Self::HRI, payload);
+        if matches!(checksum, Some(c) if c != ck) {
+            return Err(Baid64ParseError::InvalidChecksum(
+                orig.to_owned(),
+                u32::from_le_bytes(ck),
+                u32::from_le_bytes(checksum.unwrap()),
+            ));
         }
 
         Ok(Self::from(payload))
@@ -127,29 +147,31 @@ pub trait FromBaid64Str<const LEN: usize = 32>: ToBaid64<LEN> + From<[u8; LEN]> 
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
-pub struct Baid64<const LEN: usize = 32> {
+pub struct Baid64Display<const LEN: usize = 32> {
     hri: &'static str,
     chunking: bool,
     mnemonic: String,
     prefix: bool,
     suffix: bool,
-    checksum: u32,
+    embed_checksum: bool,
+    checksum: [u8; 4],
     payload: [u8; LEN],
 }
 
-impl<const LEN: usize> Baid64<LEN> {
+impl<const LEN: usize> Baid64Display<LEN> {
     pub fn with(
         hri: &'static str,
         payload: [u8; LEN],
         chunking: bool,
         prefix: bool,
         suffix: bool,
+        embed_checksum: bool,
     ) -> Self {
         debug_assert!(hri.len() <= HRI_MAX_LEN, "HRI is too long");
         debug_assert!(LEN > HRI_MAX_LEN, "Baid64 id must be at least 9 bytes");
 
         let checksum = check(hri, payload);
-        let mnemonic = mnemonic::to_string(checksum.to_le_bytes());
+        let mnemonic = mnemonic::to_string(checksum);
 
         Self {
             hri,
@@ -157,28 +179,39 @@ impl<const LEN: usize> Baid64<LEN> {
             mnemonic,
             prefix,
             suffix,
+            embed_checksum,
             checksum,
             payload,
         }
     }
 
-    pub fn plain(hri: &'static str, payload: [u8; LEN]) -> Self {
-        Self::with(hri, payload, false, false, false)
+    pub fn new(hri: &'static str, payload: [u8; LEN]) -> Self {
+        Self::with(hri, payload, false, false, false, false)
     }
-    pub fn chunked(hri: &'static str, payload: [u8; LEN]) -> Self {
-        Self::with(hri, payload, true, false, false)
+    pub const fn use_hri(mut self) -> Self {
+        self.prefix = true;
+        self
     }
-    pub fn full(hri: &'static str, payload: [u8; LEN]) -> Self {
-        Self::with(hri, payload, true, true, true)
+    pub const fn use_chunking(mut self) -> Self {
+        self.chunking = true;
+        self
+    }
+    pub const fn use_mnemonic(mut self) -> Self {
+        self.suffix = true;
+        self
+    }
+    pub const fn embed_checksum(mut self) -> Self {
+        self.embed_checksum = true;
+        self
     }
 
     pub const fn human_identifier(&self) -> &'static str { self.hri }
 
-    pub fn mnemonic(&self) -> &str { &self.mnemonic }
-    pub const fn checksum(&self) -> u32 { self.checksum }
+    pub fn mnemonic(&self) -> &str { self.mnemonic.as_str() }
+    pub const fn checksum(&self) -> [u8; 4] { self.checksum }
 }
 
-impl<const LEN: usize> Display for Baid64<LEN> {
+impl<const LEN: usize> Display for Baid64Display<LEN> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         use base64::alphabet::Alphabet;
         use base64::engine::general_purpose::NO_PAD;
@@ -190,7 +223,12 @@ impl<const LEN: usize> Display for Baid64<LEN> {
 
         let alphabet = Alphabet::new(BAID64_ALPHABET).expect("invalid Baid64 alphabet");
         let engine = GeneralPurpose::new(&alphabet, NO_PAD);
-        let s = engine.encode(self.payload);
+
+        let mut payload = self.payload.to_vec();
+        if self.embed_checksum {
+            payload.extend(self.checksum);
+        }
+        let s = engine.encode(payload);
 
         if self.chunking {
             let bytes = s.as_bytes();
