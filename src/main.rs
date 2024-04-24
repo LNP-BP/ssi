@@ -197,7 +197,7 @@ fn main() {
             let signer = runtime
                 .find_signer(ssi, &passwd)
                 .expect("unknown signing identity");
-            eprintln!("Using key {signer})");
+            eprintln!("Using key {signer}");
             let cert = signer.sign(msg);
             println!("{cert}");
         }
