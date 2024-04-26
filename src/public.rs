@@ -288,8 +288,27 @@ impl FromStr for Fingerprint {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct SsiCert {
     pub fp: Fingerprint,
+    pub pk: Option<SsiPub>,
     pub msg: Bytes32,
     pub sig: SsiSig,
+}
+
+#[derive(Debug, Display, Error, From)]
+#[display(inner)]
+pub enum VerifyError {
+    #[display("the certificate has no identity, verification impossible.")]
+    NoIdentity,
+    #[from]
+    InvalidSig(InvalidSig),
+}
+
+impl SsiCert {
+    pub fn verify(&self) -> Result<(), VerifyError> {
+        let Some(pk) = self.pk else {
+            return Err(VerifyError::NoIdentity);
+        };
+        Ok(pk.verify(self.msg.to_byte_array(), self.sig)?)
+    }
 }
 
 #[derive(Debug, Display, Error, From)]
@@ -297,8 +316,10 @@ pub struct SsiCert {
 pub enum CertParseError {
     /// SSI URI lacks signature or message information.
     DataMissed,
-    /// invalid fingerprint data in private key - {0}.
+    /// invalid certificate identity fingerprint - {0}.
     InvalidFingerprint(Baid64ParseError),
+    /// invalid certificate identity key - {0}.
+    InvalidPub(Baid64ParseError),
     /// invalid message digest - {0}.
     #[from]
     InvalidMessage(hex::Error),
@@ -320,15 +341,26 @@ impl FromStr for SsiCert {
             .split_once('&')
             .ok_or(CertParseError::DataMissed)?;
         let sig = rest.trim_start_matches("sig=");
-        let fp = Fingerprint::from_str(fp).map_err(CertParseError::InvalidFingerprint)?;
+        let (fp, pk) = match fp.len() {
+            8 => (Fingerprint::from_str(fp).map_err(CertParseError::InvalidFingerprint)?, None),
+            _ => {
+                let pk = SsiPub::from_str(fp).map_err(CertParseError::InvalidPub)?;
+                (pk.fingerprint(), Some(pk))
+            }
+        };
         let msg = Bytes32::from_str(msg)?;
         let sig = SsiSig::from_str(sig)?;
-        Ok(SsiCert { fp, msg, sig })
+        Ok(SsiCert { fp, pk, msg, sig })
     }
 }
 
 impl Display for SsiCert {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            if let Some(pk) = self.pk {
+                return write!(f, "{pk}?msg={msg}&sig={sig}", msg = self.msg, sig = self.sig);
+            }
+        }
         write!(f, "ssi:{fp}?msg={msg}&sig={sig}", fp = self.fp, msg = self.msg, sig = self.sig)
     }
 }

@@ -214,6 +214,7 @@ impl SsiPair {
         let sig = self.sk.sign(digest.into());
         SsiCert {
             fp: self.pk.fingerprint(),
+            pk: Some(self.pk),
             msg: Bytes32::from_byte_array(digest),
             sig,
         }

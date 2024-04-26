@@ -81,6 +81,10 @@ pub enum Command {
 
     /// Sign a file or a message
     Sign {
+        /// Generate signature including the full identity
+        #[clap(long)]
+        full: bool,
+
         /// Text message to sign
         #[clap(short, long, conflicts_with = "file")]
         text: Option<String>,
@@ -177,7 +181,12 @@ fn main() {
             runtime.store().expect("unable to save data");
         }
 
-        Command::Sign { text, file, ssi } => {
+        Command::Sign {
+            full,
+            text,
+            file,
+            ssi,
+        } => {
             eprintln!("Signing with {ssi} ...");
 
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
@@ -199,15 +208,21 @@ fn main() {
                 .expect("unknown signing identity");
             eprintln!("Using key {signer}");
             let cert = signer.sign(msg);
-            println!("{cert}");
+            if full {
+                println!("{cert:#}");
+            } else {
+                println!("{cert}");
+            }
         }
 
         Command::Verify { signature } => {
             eprint!("Verifying signature for message digest {} ... ", signature.msg);
-            let ssi = runtime
+            let pk = runtime
                 .find_identity(signature.fp)
+                .map(|ssi| ssi.pk)
+                .or(signature.pk)
                 .expect("unknown signing identity");
-            match ssi.pk.verify(signature.msg.to_byte_array(), signature.sig) {
+            match pk.verify(signature.msg.to_byte_array(), signature.sig) {
                 Ok(_) => eprintln!("valid"),
                 Err(err) => eprintln!("invalid: {err}"),
             }
