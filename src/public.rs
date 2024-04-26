@@ -25,6 +25,7 @@ use std::str::FromStr;
 
 use amplify::{hex, Bytes, Bytes32, Display};
 use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
+use sha2::{Digest, Sha256};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -154,6 +155,12 @@ impl From<[u8; 32]> for SsiPub {
 }
 
 impl SsiPub {
+    pub fn verify_text(self, text: &str, sig: SsiSig) -> Result<(), InvalidSig> {
+        let msg = Sha256::digest(text);
+        let digest = Sha256::digest(msg);
+        self.verify(digest.into(), sig)
+    }
+
     pub fn verify(self, msg: [u8; 32], sig: SsiSig) -> Result<(), InvalidSig> {
         match self.algo {
             Algo::Ed25519 => self.verify_ed25519(msg, sig),
@@ -300,6 +307,8 @@ pub enum VerifyError {
     NoIdentity,
     #[from]
     InvalidSig(InvalidSig),
+    #[display("the provided text doesn't match the signed message")]
+    MessageMismatch,
 }
 
 impl SsiCert {
@@ -308,6 +317,19 @@ impl SsiCert {
             return Err(VerifyError::NoIdentity);
         };
         Ok(pk.verify(self.msg.to_byte_array(), self.sig)?)
+    }
+
+    pub fn verify_text(&self, text: &str) -> Result<(), VerifyError> {
+        let Some(pk) = self.pk else {
+            return Err(VerifyError::NoIdentity);
+        };
+        let msg = Sha256::digest(text);
+        let digest = Sha256::digest(msg);
+        let msg = <[u8; 32]>::from(digest);
+        if self.msg.to_byte_array() != msg {
+            return Err(VerifyError::MessageMismatch);
+        }
+        Ok(pk.verify(digest.into(), self.sig)?)
     }
 }
 
