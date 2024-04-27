@@ -1,6 +1,6 @@
 [package]
 name = "s2id"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-sovereign identity library and command-lie"
 keywords = ["did", "ssi", "identity", "pgp", "gpg"]
 categories = ["encoding", "value-formatting", "command-line-utilities"]
