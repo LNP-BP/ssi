@@ -21,6 +21,7 @@ checksum = "9e711289a6cb28171b4f0e6c8019c69ff9476050508dc082167575d458ff74d0"
 dependencies = [
  "amplify_derive",
  "amplify_num",
+ "amplify_syn",
  "ascii",
  "wasm-bindgen",
 ]
@@ -127,6 +128,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
+name = "ascii-armor"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673486110323d50d9f33d99f0f526726b4721b1b596284351e75d3692225abe8"
+dependencies = [
+ "amplify",
+ "baid64",
+ "base85",
+ "sha2",
+ "strict_encoding",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -149,6 +163,15 @@ name = "base64"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9475866fec1451be56a3c2400fd081ff546538961565ccb5b7142cbd22bc7a51"
+
+[[package]]
+name = "base85"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36915bbaca237c626689b5bd14d02f2ba7a5a359d30a2a08be697392e3718079"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "bitflags"
@@ -241,7 +264,7 @@ version = "4.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "528131438037fd55894f62d6e9f068b8f45ac57ffa77517819645d10aed04f64"
 dependencies = [
- "heck",
+ "heck 0.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.60",
@@ -375,6 +398,12 @@ dependencies = [
  "libc",
  "wasi",
 ]
+
+[[package]]
+name = "heck"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "heck"
@@ -570,6 +599,7 @@ version = "0.2.0"
 dependencies = [
  "aes",
  "amplify",
+ "ascii-armor",
  "baid64",
  "chrono",
  "clap",
@@ -582,6 +612,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "shellexpand",
+ "strict_encoding",
 ]
 
 [[package]]
@@ -621,6 +652,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da03fa3b94cc19e3ebfc88c4229c49d8f08cdbd1228870a45f0ffdf84988e14b"
 dependencies = [
  "dirs",
+]
+
+[[package]]
+name = "strict_encoding"
+version = "2.7.0-beta.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c463f8ea993e323740d78544473e791adb91ac659f5bf2c1a59db64a34f99fc"
+dependencies = [
+ "amplify",
+ "strict_encoding_derive",
+]
+
+[[package]]
+name = "strict_encoding_derive"
+version = "2.7.0-beta.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "475fa6f1fdde6e0555422b5111ad34bde30a1459af3599f920c3af9829772c0e"
+dependencies = [
+ "amplify_syn",
+ "heck 0.4.1",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

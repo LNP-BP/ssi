@@ -23,15 +23,15 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use aes::cipher::generic_array::GenericArray;
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
-use aes::{Aes256, Block};
 use amplify::Bytes32;
 use baid64::Baid64ParseError;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
-use crate::{Algo, Bip340Secret, Chain, Ed25519Secret, Fingerprint, Ssi, SsiCert, SsiPub, SsiSig};
+use crate::{
+    decrypt, encrypt, Algo, Bip340Secret, Chain, Ed25519Secret, Fingerprint, Ssi, SsiCert, SsiPub,
+    SsiSig,
+};
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum SsiSecret {
@@ -143,29 +143,11 @@ impl SsiSecret {
     }
 
     pub fn encrypt(&mut self, passwd: impl AsRef<str>) {
-        let key = Sha256::digest(passwd.as_ref().as_bytes());
-        let key = GenericArray::from_slice(key.as_slice());
-        let cipher = Aes256::new(key);
-
-        let mut source = self.to_vec();
-        for chunk in source.chunks_mut(16) {
-            let block = Block::from_mut_slice(chunk);
-            cipher.encrypt_block(block);
-        }
-        self.replace(&source);
+        self.replace(&encrypt(self.to_vec(), passwd.as_ref()));
     }
 
     pub fn decrypt(&mut self, passwd: impl AsRef<str>) {
-        let key = Sha256::digest(passwd.as_ref().as_bytes());
-        let key = GenericArray::from_slice(key.as_slice());
-        let cipher = Aes256::new(key);
-
-        let mut source = self.to_vec();
-        for chunk in source.chunks_mut(16) {
-            let block = Block::from_mut_slice(chunk);
-            cipher.decrypt_block(block);
-        }
-        self.replace(&source);
+        self.replace(&decrypt(self.to_vec(), passwd.as_ref()));
     }
 
     pub fn to_vec(&self) -> Vec<u8> {

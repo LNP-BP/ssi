@@ -78,7 +78,7 @@ impl FromStr for Uid {
     fn from_str(s: &str) -> Result<Self, Self::Err> { Self::parse_str(&s.replace(['<', '>'], "")) }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Ssi {
     pub pk: SsiPub,
     pub uids: BTreeSet<Uid>,
@@ -92,7 +92,7 @@ impl Ssi {
             pk: secret.to_public(),
             uids,
             expiry,
-            sig: SsiSig([0u8; 64]),
+            sig: SsiSig::from([0u8; 64]),
         };
         me.sig = secret.sign(me.to_message());
         me

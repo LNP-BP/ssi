@@ -100,13 +100,13 @@ impl Bip340Secret {
         let msg = Message::from_digest(msg);
         let keypair = Keypair::from_secret_key(SECP256K1, &self.0);
         let sig = SECP256K1.sign_schnorr(&msg, &keypair);
-        SsiSig(sig.serialize())
+        SsiSig::from(sig.serialize())
     }
 }
 
 impl SsiPub {
     pub fn verify_bip360(self, msg: [u8; 32], sig: SsiSig) -> Result<(), InvalidSig> {
-        let sig = Signature::from_slice(&sig.0).map_err(|_| InvalidSig::InvalidData)?;
+        let sig = Signature::from_slice(sig.as_slice()).map_err(|_| InvalidSig::InvalidData)?;
         let msg = Message::from_digest(msg);
         let pk = XOnlyPublicKey::try_from(self)?;
         sig.verify(&msg, &pk).map_err(|_| InvalidSig::InvalidSig)

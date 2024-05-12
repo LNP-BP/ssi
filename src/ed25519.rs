@@ -99,13 +99,13 @@ impl Ed25519Secret {
 
     pub fn sign(&self, msg: [u8; 32]) -> SsiSig {
         let sig = self.0.sign(msg, None);
-        SsiSig(*sig)
+        SsiSig::from(*sig)
     }
 }
 
 impl SsiPub {
     pub fn verify_ed25519(self, msg: [u8; 32], sig: SsiSig) -> Result<(), InvalidSig> {
-        let sig = Signature::from_slice(&sig.0).map_err(|_| InvalidSig::InvalidData)?;
+        let sig = Signature::from_slice(sig.as_slice()).map_err(|_| InvalidSig::InvalidData)?;
         let pk = PublicKey::try_from(self)?;
         pk.verify(msg, &sig).map_err(|err| {
             eprintln!("{err}");

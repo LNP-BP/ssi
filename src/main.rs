@@ -20,6 +20,8 @@
 // limitations under the License.
 
 #[macro_use]
+extern crate amplify;
+#[macro_use]
 extern crate clap;
 
 use std::fs;
@@ -29,7 +31,10 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use ssi::{Algo, Chain, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid};
+use rand::random;
+use ssi::{
+    encrypt, Algo, Chain, Encrypted, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid,
+};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -101,6 +106,20 @@ pub enum Command {
     Verify {
         /// Signature certificate to verify
         signature: SsiCert,
+    },
+
+    Encrypt {
+        /// Identities which must be able to decrypt
+        #[clap(short, long, required = true)]
+        receiver: Vec<SsiQuery>,
+
+        /// Text message to encrypt
+        #[clap(short, long, conflicts_with = "file")]
+        text: Option<String>,
+
+        /// File to encrypt
+        #[clap(short, long)]
+        file: Option<PathBuf>,
     },
     //    Recover,
 }
@@ -191,18 +210,7 @@ fn main() {
 
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
                 .expect("unable to read password");
-            let msg = match (text, file) {
-                (Some(t), None) => t.into_bytes(),
-                (None, Some(f)) => fs::read(f).expect("unable to read the file"),
-                (None, None) => {
-                    let mut s = String::new();
-                    stdin()
-                        .read_to_string(&mut s)
-                        .expect("unable to read standard input");
-                    s.into_bytes()
-                }
-                _ => unreachable!(),
-            };
+            let msg = get_message(text, file);
             let signer = runtime
                 .find_signer(ssi, &passwd)
                 .expect("unknown signing identity");
@@ -227,20 +235,49 @@ fn main() {
                 Err(err) => eprintln!("invalid: {err}"),
             }
             println!();
-        } /*
-          Command::Recover => {
-              use std::collections::HashSet;
-              let passwd = rpassword::prompt_password("Password for private key encryption: ")
-                  .expect("unable to read password");
-              let mut identities = HashSet::new();
-              for mut ssi in runtime.identities.iter().cloned() {
-                  let secret = runtime.find_signer(ssi.pk.fingerprint(), &passwd).unwrap();
-                  ssi.sig = secret.sk.sign(ssi.to_message());
-                  identities.push(ssi);
-              }
-              runtime.identities = identities;
-              runtime.store().unwrap()
-          }
-           */
+        } /*  */
+        //Command::Recover => {
+        //use std::collections::HashSet;
+        //let passwd = rpassword::prompt_password("Password for private key encryption: ")
+        //.expect("unable to read password");
+        //let mut identities = HashSet::new();
+        //for mut ssi in runtime.identities.iter().cloned() {
+        //let secret = runtime.find_signer(ssi.pk.fingerprint(), &passwd).unwrap();
+        //ssi.sig = secret.sk.sign(ssi.to_message());
+        //identities.push(ssi);
+        //}
+        //runtime.identities = identities;
+        //runtime.store().unwrap()
+        //}
+        Command::Encrypt {
+            receiver,
+            text,
+            file,
+        } => {
+            let msg = get_message(text, file);
+            let receivers = receiver.into_iter().map(|query| {
+                runtime
+                    .find_identity(query.clone())
+                    .unwrap_or_else(|| panic!("unknown identity {query}"))
+                    .pk
+            });
+            let encrypted = Encrypted::encrypt(msg, receivers).expect("unable to encrypt");
+            println!("{encrypted}");
+        }
+    }
+}
+
+fn get_message(text: Option<String>, file: Option<PathBuf>) -> Vec<u8> {
+    match (text, file) {
+        (Some(t), None) => t.into_bytes(),
+        (None, Some(f)) => fs::read(f).expect("unable to read the file"),
+        (None, None) => {
+            let mut s = String::new();
+            stdin()
+                .read_to_string(&mut s)
+                .expect("unable to read standard input");
+            s.into_bytes()
+        }
+        _ => unreachable!(),
     }
 }

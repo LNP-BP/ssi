@@ -21,7 +21,10 @@
 
 #[macro_use]
 extern crate amplify;
+#[macro_use]
+extern crate strict_encoding;
 
+mod encrypt;
 mod identity;
 mod secret;
 mod public;
@@ -32,6 +35,7 @@ mod runtime;
 
 pub use bip340::Bip340Secret;
 pub use ed25519::Ed25519Secret;
+pub use encrypt::{decrypt, encrypt, Encrypted, EncryptionError, SymmetricKey};
 pub use identity::{Ssi, SsiParseError, Uid};
 pub use public::{
     Algo, CertParseError, Chain, Fingerprint, InvalidPubkey, InvalidSig, SsiCert, SsiPub, SsiQuery,
@@ -39,3 +43,5 @@ pub use public::{
 };
 pub use runtime::{Error, SsiRuntime, SSI_DIR};
 pub use secret::{SecretParseError, SsiPair, SsiSecret};
+
+pub const LIB_NAME_SSI: &str = "SSI";

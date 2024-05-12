@@ -21,7 +21,7 @@
 
 pub const SSI_DIR: &str = "~/.ssi";
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -49,7 +49,7 @@ pub enum Error {
 
 pub struct SsiRuntime {
     pub secrets: BTreeSet<SsiSecret>,
-    pub identities: HashSet<Ssi>,
+    pub identities: BTreeSet<Ssi>,
 }
 
 impl SsiRuntime {
@@ -85,7 +85,7 @@ impl SsiRuntime {
         let mut permissions = file.metadata()?.permissions();
         permissions.set_mode(0o600);
         let reader = io::BufReader::new(file);
-        let mut identities = set![];
+        let mut identities = bset![];
         for line in reader.lines() {
             let line = line?;
             identities.insert(line.parse()?);

@@ -21,11 +21,18 @@
 
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
+use std::io;
 use std::str::FromStr;
 
-use amplify::{hex, Bytes, Bytes32, Display};
+use amplify::{hex, Bytes, Bytes32, Bytes64, Display};
 use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use sha2::{Digest, Sha256};
+use strict_encoding::{
+    DecodeError, ReadTuple, StrictDecode, StrictEncode, StrictProduct, StrictTuple, StrictType,
+    TypeName, TypedRead, TypedWrite, WriteTuple,
+};
+
+use crate::LIB_NAME_SSI;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Default)]
 #[non_exhaustive]
@@ -37,6 +44,28 @@ pub enum Algo {
     Bip340,
     #[display("other({0})")]
     Other(u8),
+}
+
+impl StrictType for Algo {
+    const STRICT_LIB_NAME: &'static str = LIB_NAME_SSI;
+    fn strict_name() -> Option<TypeName> { Some(tn!("Algo")) }
+}
+impl StrictProduct for Algo {}
+impl StrictTuple for Algo {
+    const FIELD_COUNT: u8 = 1;
+}
+impl StrictEncode for Algo {
+    fn strict_encode<W: TypedWrite>(&self, writer: W) -> io::Result<W> {
+        writer.write_tuple::<Self>(|w| Ok(w.write_field(&self.to_u8())?.complete()))
+    }
+}
+impl StrictDecode for Algo {
+    fn strict_decode(reader: &mut impl TypedRead) -> Result<Self, DecodeError> {
+        reader.read_tuple(|r| {
+            let val = r.read_field::<u8>()?;
+            Ok(Self::from(val))
+        })
+    }
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
@@ -56,13 +85,7 @@ impl FromStr for Algo {
 }
 
 impl From<Algo> for u8 {
-    fn from(algo: Algo) -> Self {
-        match algo {
-            Algo::Ed25519 => 0x13,
-            Algo::Bip340 => 0,
-            Algo::Other(v) => v,
-        }
-    }
+    fn from(algo: Algo) -> Self { algo.to_u8() }
 }
 
 impl From<u8> for Algo {
@@ -71,6 +94,16 @@ impl From<u8> for Algo {
             0x13 => Algo::Ed25519,
             0 => Algo::Bip340,
             n => Algo::Other(n),
+        }
+    }
+}
+
+impl Algo {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Algo::Ed25519 => 0x13,
+            Algo::Bip340 => 0,
+            Algo::Other(v) => *v,
         }
     }
 }
@@ -84,6 +117,28 @@ pub enum Chain {
     Liquid,
     #[display("other({0})")]
     Other(u8),
+}
+
+impl StrictType for Chain {
+    const STRICT_LIB_NAME: &'static str = LIB_NAME_SSI;
+    fn strict_name() -> Option<TypeName> { Some(tn!("Chain")) }
+}
+impl StrictProduct for Chain {}
+impl StrictTuple for Chain {
+    const FIELD_COUNT: u8 = 1;
+}
+impl StrictEncode for Chain {
+    fn strict_encode<W: TypedWrite>(&self, writer: W) -> io::Result<W> {
+        writer.write_tuple::<Self>(|w| Ok(w.write_field(&self.to_u8())?.complete()))
+    }
+}
+impl StrictDecode for Chain {
+    fn strict_decode(reader: &mut impl TypedRead) -> Result<Self, DecodeError> {
+        reader.read_tuple(|r| {
+            let val = r.read_field::<u8>()?;
+            Ok(Self::from(val))
+        })
+    }
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Display, Error)]
@@ -103,13 +158,7 @@ impl FromStr for Chain {
 }
 
 impl From<Chain> for u8 {
-    fn from(chain: Chain) -> Self {
-        match chain {
-            Chain::Bitcoin => 0xB7,
-            Chain::Liquid => 0x10,
-            Chain::Other(v) => v,
-        }
-    }
+    fn from(chain: Chain) -> Self { chain.to_u8() }
 }
 
 impl From<u8> for Chain {
@@ -122,11 +171,23 @@ impl From<u8> for Chain {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+impl Chain {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Chain::Bitcoin => 0xB7,
+            Chain::Liquid => 0x10,
+            Chain::Other(v) => *v,
+        }
+    }
+}
+
+#[derive(Getters, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(StrictType, StrictDumb, StrictEncode, StrictDecode)]
+#[strict_type(lib = LIB_NAME_SSI)]
 pub struct SsiPub {
-    pub(crate) chain: Chain,
-    pub(crate) algo: Algo,
-    pub(crate) key: Bytes<30>,
+    chain: Chain,
+    algo: Algo,
+    key: Bytes<30>,
 }
 
 impl DisplayBaid64 for SsiPub {
@@ -198,7 +259,13 @@ impl FromStr for SsiPub {
 }
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, From)]
-pub struct SsiSig(pub(crate) [u8; 64]);
+#[derive(StrictType, StrictDumb, StrictEncode, StrictDecode)]
+#[strict_type(lib = LIB_NAME_SSI)]
+pub struct SsiSig(#[from([u8; 64])] Bytes64);
+
+impl SsiSig {
+    pub fn as_slice(&self) -> &[u8] { self.0.as_slice() }
+}
 
 impl DisplayBaid64<64> for SsiSig {
     const HRI: &'static str = "";
@@ -207,7 +274,7 @@ impl DisplayBaid64<64> for SsiSig {
     const EMBED_CHECKSUM: bool = false;
     const MNEMONIC: bool = false;
 
-    fn to_baid64_payload(&self) -> [u8; 64] { self.0 }
+    fn to_baid64_payload(&self) -> [u8; 64] { self.0.to_byte_array() }
 }
 
 impl FromBaid64Str<64> for SsiSig {}
@@ -268,6 +335,8 @@ impl FromStr for SsiQuery {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From)]
+#[derive(StrictType, StrictDumb, StrictEncode, StrictDecode)]
+#[strict_type(lib = LIB_NAME_SSI)]
 pub struct Fingerprint([u8; 6]);
 
 impl DisplayBaid64<6> for Fingerprint {
@@ -293,6 +362,8 @@ impl FromStr for Fingerprint {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(StrictType, StrictDumb, StrictEncode, StrictDecode)]
+#[strict_type(lib = LIB_NAME_SSI)]
 pub struct SsiCert {
     pub fp: Fingerprint,
     pub pk: Option<SsiPub>,
