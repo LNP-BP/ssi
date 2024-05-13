@@ -142,11 +142,11 @@ impl SsiSecret {
         }
     }
 
-    pub fn encrypt(&mut self, passwd: impl AsRef<str>) {
+    pub fn conceal(&mut self, passwd: impl AsRef<str>) {
         self.replace(&encrypt(self.to_vec(), passwd.as_ref()));
     }
 
-    pub fn decrypt(&mut self, passwd: impl AsRef<str>) {
+    pub fn reveal(&mut self, passwd: impl AsRef<str>) {
         self.replace(&decrypt(self.to_vec(), passwd.as_ref()));
     }
 

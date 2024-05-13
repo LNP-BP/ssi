@@ -24,15 +24,15 @@ use std::str::FromStr;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes::{Aes256, Block};
 use amplify::confinement::{Confined, SmallOrdMap, U64 as U64MAX};
-use amplify::Bytes32;
+use amplify::{Bytes32, Wrapper};
 use armor::{ArmorHeader, ArmorParseError, AsciiArmor};
-use ec25519::{edwards25519, Error};
+use ec25519::edwards25519;
 use rand::random;
 use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha256};
 use strict_encoding::{StrictDeserialize, StrictSerialize};
 
-use crate::{Algo, InvalidPubkey, SsiPub, LIB_NAME_SSI};
+use crate::{Algo, InvalidPubkey, SsiPair, SsiPub, LIB_NAME_SSI};
 
 #[derive(Copy, Clone, Debug, Display, Error)]
 pub enum EncryptionError {
@@ -42,10 +42,22 @@ pub enum EncryptionError {
     InvalidPubkey(SsiPub),
 }
 
+#[derive(Copy, Clone, Debug, Display, Error)]
+pub enum DecryptionError {
+    #[display("the message can't be decrypted using key {0}")]
+    KeyMismatch(SsiPub),
+    #[display("invalid public key {0}")]
+    InvalidPubkey(SsiPub),
+}
+
 #[derive(Clone, Debug, From)]
 #[derive(StrictType, StrictDumb, StrictEncode, StrictDecode)]
 #[strict_type(lib = LIB_NAME_SSI)]
-pub struct SymmetricKey(Bytes32);
+pub struct SymmetricKey(
+    #[from]
+    #[from([u8; 32])]
+    Bytes32,
+);
 
 impl AsRef<[u8]> for SymmetricKey {
     fn as_ref(&self) -> &[u8] { self.0.as_ref() }
@@ -107,7 +119,7 @@ impl Encrypted {
         for pk in receivers {
             keys.insert(
                 pk,
-                pk.encrypt(&key)
+                pk.encrypt_key(&key)
                     .map_err(|_| EncryptionError::InvalidPubkey(pk))?,
             );
         }
@@ -117,19 +129,33 @@ impl Encrypted {
             data: Confined::from_collection_unsafe(msg),
         })
     }
+
+    pub fn decrypt(&self, pair: SsiPair) -> Result<Vec<u8>, DecryptionError> {
+        let key = self
+            .keys
+            .iter()
+            .find(|(pk, _)| *pk == &pair.pk)
+            .map(|(_, secret)| secret)
+            .ok_or(DecryptionError::KeyMismatch(pair.pk))?
+            .copy();
+        let key = pair
+            .decrypt_key(key)
+            .map_err(|_| DecryptionError::InvalidPubkey(pair.pk))?;
+        Ok(decrypt(self.data.to_inner(), key))
+    }
 }
 
 impl SsiPub {
-    pub fn encrypt(&self, key: &SymmetricKey) -> Result<Bytes32, InvalidPubkey> {
+    pub fn encrypt_key(&self, key: &SymmetricKey) -> Result<Bytes32, InvalidPubkey> {
         match self.algo() {
-            Algo::Ed25519 => self.encrypt_ed25519(key),
+            Algo::Ed25519 => self.encrypt_key_ed25519(key),
             Algo::Bip340 | Algo::Other(_) => Err(InvalidPubkey),
         }
     }
 
-    pub fn encrypt_ed25519(&self, key: &SymmetricKey) -> Result<Bytes32, InvalidPubkey> {
-        let pk = ec25519::PublicKey::try_from(*self)?;
-        let ge = edwards25519::GeP3::from_bytes_vartime(&pk).ok_or(InvalidPubkey)?;
+    pub fn encrypt_key_ed25519(&self, key: &SymmetricKey) -> Result<Bytes32, InvalidPubkey> {
+        let ge =
+            edwards25519::GeP3::from_bytes_vartime(&self.to_byte_array()).ok_or(InvalidPubkey)?;
 
         Ok(edwards25519::ge_scalarmult(key.as_ref(), &ge)
             .to_bytes()
@@ -137,8 +163,25 @@ impl SsiPub {
     }
 }
 
-pub fn encrypt(mut source: Vec<u8>, passwd: impl AsRef<[u8]>) -> Vec<u8> {
-    let key = Sha256::digest(passwd.as_ref());
+impl SsiPair {
+    pub fn decrypt_key(&self, key: Bytes32) -> Result<SymmetricKey, InvalidPubkey> {
+        match self.pk.algo() {
+            Algo::Ed25519 => self.decrypt_key_ed25519(key),
+            Algo::Bip340 | Algo::Other(_) => Err(InvalidPubkey),
+        }
+    }
+
+    pub fn decrypt_key_ed25519(&self, key: Bytes32) -> Result<SymmetricKey, InvalidPubkey> {
+        let ge = edwards25519::GeP3::from_bytes_negate_vartime(&self.pk.to_byte_array())
+            .ok_or(InvalidPubkey)?;
+        Ok(edwards25519::ge_scalarmult(key.as_ref(), &ge)
+            .to_bytes()
+            .into())
+    }
+}
+
+pub fn encrypt(mut source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+    let key = Sha256::digest(key.as_ref());
     let key = GenericArray::from_slice(key.as_slice());
     let cipher = Aes256::new(key);
 
@@ -149,8 +192,8 @@ pub fn encrypt(mut source: Vec<u8>, passwd: impl AsRef<[u8]>) -> Vec<u8> {
     source
 }
 
-pub fn decrypt(mut source: Vec<u8>, passwd: impl AsRef<[u8]>) -> Vec<u8> {
-    let key = Sha256::digest(passwd.as_ref());
+pub fn decrypt(mut source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+    let key = Sha256::digest(key.as_ref());
     let key = GenericArray::from_slice(key.as_slice());
     let cipher = Aes256::new(key);
 

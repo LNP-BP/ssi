@@ -309,9 +309,12 @@ pub enum InvalidSig {
     UnsupportedAlgo(u8),
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, From)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Debug, Display, From)]
 #[display(inner)]
 pub enum SsiQuery {
+    #[default]
+    #[display("default key")]
+    Default,
     #[from]
     Pub(SsiPub),
     #[from]

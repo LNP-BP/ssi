@@ -35,7 +35,7 @@ mod runtime;
 
 pub use bip340::Bip340Secret;
 pub use ed25519::Ed25519Secret;
-pub use encrypt::{decrypt, encrypt, Encrypted, EncryptionError, SymmetricKey};
+pub use encrypt::{decrypt, encrypt, DecryptionError, Encrypted, EncryptionError, SymmetricKey};
 pub use identity::{Ssi, SsiParseError, Uid};
 pub use public::{
     Algo, CertParseError, Chain, Fingerprint, InvalidPubkey, InvalidSig, SsiCert, SsiPub, SsiQuery,

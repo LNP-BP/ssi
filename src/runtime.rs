@@ -121,6 +121,8 @@ impl SsiRuntime {
     pub fn find_identity(&self, query: impl Into<SsiQuery>) -> Option<&Ssi> {
         let query = query.into();
         self.identities.iter().find(|ssi| match query {
+            // TODO: Support custom default keys
+            SsiQuery::Default => true,
             SsiQuery::Pub(pk) => ssi.pk == pk,
             SsiQuery::Fp(fp) => ssi.pk.fingerprint() == fp,
             SsiQuery::Id(ref id) => ssi.uids.iter().any(|uid| {
@@ -137,7 +139,7 @@ impl SsiRuntime {
         let sk = self.secrets.iter().find_map(|s| {
             let mut s = (*s).clone();
             if !passwd.is_empty() {
-                s.decrypt(passwd);
+                s.reveal(passwd);
             }
             if s.to_public() == ssi.pk {
                 Some(s)

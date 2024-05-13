@@ -20,8 +20,6 @@
 // limitations under the License.
 
 #[macro_use]
-extern crate amplify;
-#[macro_use]
 extern crate clap;
 
 use std::fs;
@@ -29,12 +27,10 @@ use std::io::{stdin, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use armor::AsciiArmor;
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use rand::random;
-use ssi::{
-    encrypt, Algo, Chain, Encrypted, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid,
-};
+use ssi::{Algo, Chain, Encrypted, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -107,7 +103,8 @@ pub enum Command {
         /// Signature certificate to verify
         signature: SsiCert,
     },
-
+    //    Recover,
+    /// Encrypt a message for receiver(s)
     Encrypt {
         /// Identities which must be able to decrypt
         #[clap(short, long, required = true)]
@@ -121,7 +118,21 @@ pub enum Command {
         #[clap(short, long)]
         file: Option<PathBuf>,
     },
-    //    Recover,
+
+    /// Decrypt a message using one of your private keys
+    Decrypt {
+        /// Private key to use for decryption
+        #[clap(short, long)]
+        key: Option<SsiQuery>,
+
+        /// Text message to decrypt
+        #[clap(short, long, conflicts_with = "file")]
+        text: Option<String>,
+
+        /// File to decrypt
+        #[clap(short, long)]
+        file: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -191,7 +202,7 @@ fn main() {
             println!("{ssi}");
 
             if !passwd.is_empty() {
-                secret.encrypt(passwd);
+                secret.conceal(passwd);
             }
 
             runtime.secrets.insert(secret);
@@ -208,7 +219,7 @@ fn main() {
         } => {
             eprintln!("Signing with {ssi} ...");
 
-            let passwd = rpassword::prompt_password("Password for private key encryption: ")
+            let passwd = rpassword::prompt_password("Password for the private key: ")
                 .expect("unable to read password");
             let msg = get_message(text, file);
             let signer = runtime
@@ -235,7 +246,7 @@ fn main() {
                 Err(err) => eprintln!("invalid: {err}"),
             }
             println!();
-        } /*  */
+        }
         //Command::Recover => {
         //use std::collections::HashSet;
         //let passwd = rpassword::prompt_password("Password for private key encryption: ")
@@ -263,6 +274,23 @@ fn main() {
             });
             let encrypted = Encrypted::encrypt(msg, receivers).expect("unable to encrypt");
             println!("{encrypted}");
+        }
+        Command::Decrypt { key, text, file } => {
+            let key = key.unwrap_or_default();
+            eprintln!("Decrypting with {key} ...");
+
+            let passwd = rpassword::prompt_password("Password for the private key: ")
+                .expect("unable to read password");
+            let pair = runtime
+                .find_signer(key, &passwd)
+                .expect("unknown private key");
+            eprintln!("Using key {pair}");
+
+            let s = String::from_utf8(get_message(text, file))
+                .expect("the provided message is not ASCII armored");
+            let encrypted = Encrypted::from_ascii_armored_str(&s).expect("invalid ASCII armor");
+            let msg = encrypted.decrypt(pair).expect("can't decrypt the message");
+            println!("{}", String::from_utf8_lossy(&msg));
         }
     }
 }
