@@ -21,14 +21,13 @@
 
 use std::str::FromStr;
 
-use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
-use aes::{Aes256, Block};
+use aes_gcm::aead::{Aead, OsRng};
+use aes_gcm::{AeadCore, Aes256Gcm, KeyInit, Nonce};
 use amplify::confinement::{Confined, SmallOrdMap, U64 as U64MAX};
 use amplify::{Bytes32, Wrapper};
 use armor::{ArmorHeader, ArmorParseError, AsciiArmor};
 use ec25519::edwards25519;
 use rand::random;
-use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha256};
 use strict_encoding::{StrictDeserialize, StrictSerialize};
 
@@ -180,26 +179,33 @@ impl SsiPair {
     }
 }
 
-pub fn encrypt(mut source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+pub fn encrypt(source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
     let key = Sha256::digest(key.as_ref());
-    let key = GenericArray::from_slice(key.as_slice());
-    let cipher = Aes256::new(key);
+    let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
 
-    for chunk in source.chunks_mut(16) {
-        let block = Block::from_mut_slice(chunk);
-        cipher.encrypt_block(block);
-    }
-    source
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(key);
+
+    let ciphered_data = cipher
+        .encrypt(&nonce, source.as_ref())
+        .expect("failed to encrypt");
+    // combining nonce and encrypted data together
+    // for storage purpose
+    let mut encrypted_data: Vec<u8> = nonce.to_vec();
+    encrypted_data.extend_from_slice(&ciphered_data);
+
+    encrypted_data
 }
 
-pub fn decrypt(mut source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+pub fn decrypt(encrypted: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
     let key = Sha256::digest(key.as_ref());
-    let key = GenericArray::from_slice(key.as_slice());
-    let cipher = Aes256::new(key);
+    let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
 
-    for chunk in source.chunks_mut(16) {
-        let block = Block::from_mut_slice(chunk);
-        cipher.decrypt_block(block);
-    }
-    source
+    let (nonce_arr, ciphered_data) = encrypted.split_at(12);
+    let nonce = Nonce::from_slice(nonce_arr);
+    let cipher = Aes256Gcm::new(key);
+
+    cipher
+        .decrypt(nonce, ciphered_data)
+        .expect("failed to decrypt data")
 }
