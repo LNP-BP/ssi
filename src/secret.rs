@@ -50,6 +50,10 @@ pub enum RevealError {
 
     /// unsupported algorithm #{0}.
     Unsupported(u8),
+
+    /// unable to decrypt data.
+    #[from(aes_gcm::Error)]
+    Decrypt,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -62,7 +66,7 @@ pub struct EncryptedSecret {
 
 impl EncryptedSecret {
     pub fn reveal(&self, passwd: impl AsRef<str>) -> Result<SsiSecret, RevealError> {
-        let sk = decrypt(&self.key, self.nonce, passwd.as_ref());
+        let sk = decrypt(&self.key, self.nonce, passwd.as_ref())?;
         match self.algo {
             Algo::Ed25519 => Ok(ec25519::SecretKey::from_slice(&sk)?.into()),
             Algo::Bip340 => Ok(secp256k1::SecretKey::from_slice(&sk)?.into()),

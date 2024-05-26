@@ -154,9 +154,9 @@ checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
 name = "ascii-armor"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f834c431d27e0e6bedf95c9ee4dbea02fa4e4cd5bc26a61e5a418427178c5495"
+checksum = "9ad861dfcd5f348ac79e0df2e70494641c62d3ac37587af68c52a16ab355afdb"
 dependencies = [
  "amplify",
  "baid64",

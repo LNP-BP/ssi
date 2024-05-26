@@ -35,18 +35,21 @@ use crate::{Algo, InvalidPubkey, SsiPair, SsiPub, LIB_NAME_SSI};
 
 #[derive(Copy, Clone, Debug, Display, Error)]
 pub enum EncryptionError {
-    #[display("the number of receivers exceeds 2^16")]
+    #[display("the number of receivers exceeds 2^16.")]
     TooManyReceivers,
-    #[display("invalid public key {0}")]
+    #[display("invalid public key {0}.")]
     InvalidPubkey(SsiPub),
 }
 
-#[derive(Copy, Clone, Debug, Display, Error)]
+#[derive(Copy, Clone, Debug, Display, Error, From)]
 pub enum DecryptionError {
-    #[display("the message can't be decrypted using key {0}")]
+    #[display("the message can't be decrypted using key {0}.")]
     KeyMismatch(SsiPub),
-    #[display("invalid public key {0}")]
+    #[display("invalid public key {0}.")]
     InvalidPubkey(SsiPub),
+    #[from(aes_gcm::Error)]
+    #[display("unable to decrypt data.")]
+    Decrypt,
 }
 
 #[derive(Clone, Debug, From)]
@@ -142,7 +145,7 @@ impl Encrypted {
         let key = pair
             .decrypt_key(key)
             .map_err(|_| DecryptionError::InvalidPubkey(pair.pk))?;
-        Ok(decrypt(self.data.as_slice(), self.nonce.into(), key))
+        Ok(decrypt(self.data.as_slice(), self.nonce.into(), key)?)
     }
 }
 
@@ -195,13 +198,12 @@ pub fn encrypt(source: Vec<u8>, key: impl AsRef<[u8]>) -> (Nonce<Aes256Gcm>, Vec
     (nonce, ciphered_data)
 }
 
-pub fn decrypt(encrypted: &[u8], nonce: Nonce<Aes256Gcm>, key: impl AsRef<[u8]>) -> Vec<u8> {
+pub fn decrypt(
+    encrypted: &[u8],
+    nonce: Nonce<Aes256Gcm>,
+    key: impl AsRef<[u8]>,
+) -> Result<Vec<u8>, aes_gcm::Error> {
     let key = Sha256::digest(key.as_ref());
     let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
-
-    let cipher = Aes256Gcm::new(key);
-
-    cipher
-        .decrypt(&nonce, encrypted)
-        .expect("failed to decrypt data")
+    Aes256Gcm::new(key).decrypt(&nonce, encrypted)
 }
