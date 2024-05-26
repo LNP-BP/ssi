@@ -1,6 +1,6 @@
 [package]
 name = "s2id"
-version = "0.2.0"
+version = "0.3.0"
 description = "Self-sovereign identity library and command-lie"
 keywords = ["did", "ssi", "identity", "pgp", "gpg"]
 categories = ["encoding", "value-formatting", "command-line-utilities"]
@@ -22,9 +22,9 @@ required-features = ["cli"]
 
 [dependencies]
 amplify = "4.6.0"
-strict_encoding = "2.7.0-beta.3"
-ascii-armor = "0.6.0"
-baid64 = "0.1.0"
+strict_encoding = "2.7.0-beta.4"
+ascii-armor = "0.7.0"
+baid64 = "0.2.2"
 secp256k1 = { version = "0.29.0", features = ["rand", "global-context", "rand-std"] }
 ec25519 = "0.1.0"
 rand = "0.8.5"
