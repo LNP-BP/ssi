@@ -22,6 +22,7 @@
 #[macro_use]
 extern crate clap;
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{stdin, Read};
 use std::path::PathBuf;
@@ -103,7 +104,10 @@ pub enum Command {
         /// Signature certificate to verify
         signature: SsiCert,
     },
-    //    Recover,
+
+    /// Recover identity signatures for identities with private keys
+    Recover,
+
     /// Encrypt a message for receiver(s)
     Encrypt {
         /// Identities which must be able to decrypt
@@ -247,19 +251,21 @@ fn main() {
             }
             println!();
         }
-        //Command::Recover => {
-        //use std::collections::HashSet;
-        //let passwd = rpassword::prompt_password("Password for private key encryption: ")
-        //.expect("unable to read password");
-        //let mut identities = HashSet::new();
-        //for mut ssi in runtime.identities.iter().cloned() {
-        //let secret = runtime.find_signer(ssi.pk.fingerprint(), &passwd).unwrap();
-        //ssi.sig = secret.sk.sign(ssi.to_message());
-        //identities.push(ssi);
-        //}
-        //runtime.identities = identities;
-        //runtime.store().unwrap()
-        //}
+        Command::Recover => {
+            let passwd = rpassword::prompt_password("Password for private key encryption: ")
+                .expect("unable to read password");
+            let mut identities = BTreeSet::new();
+            for mut ssi in runtime.identities.iter().cloned() {
+                let Some(secret) = runtime.find_signer(ssi.pk.fingerprint(), &passwd) else {
+                    identities.insert(ssi);
+                    continue;
+                };
+                ssi.sig = Some(secret.sk.sign(ssi.to_message()));
+                identities.insert(ssi);
+            }
+            runtime.identities = identities;
+            runtime.store().unwrap()
+        }
         Command::Encrypt {
             receiver,
             text,
