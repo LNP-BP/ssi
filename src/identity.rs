@@ -83,7 +83,7 @@ pub struct Ssi {
     pub pk: SsiPub,
     pub uids: BTreeSet<Uid>,
     pub expiry: Option<DateTime<Utc>>,
-    pub sig: SsiSig,
+    pub sig: Option<SsiSig>,
 }
 
 impl Ssi {
@@ -92,22 +92,28 @@ impl Ssi {
             pk: secret.to_public(),
             uids,
             expiry,
-            sig: SsiSig::from([0u8; 64]),
+            sig: None,
         };
-        me.sig = secret.sign(me.to_message());
+        me.sig = Some(secret.sign(me.to_message()));
         me
     }
 
-    fn to_message(&self) -> [u8; 32] {
+    pub fn to_message(&self) -> [u8; 32] {
         let s = self.to_string();
-        let (mut s, _) = s.rsplit_once("sig=").expect("no signature");
+        let (mut s, _) = s.rsplit_once("sig=").unwrap_or_else(|| (s.as_str(), ""));
         s = s.trim_end_matches(&['&', '?']);
         let msg = Sha256::digest(s);
         Sha256::digest(msg).into()
     }
 
-    pub fn check_integrity(&self) -> Result<(), InvalidSig> {
-        self.pk.verify(self.to_message(), self.sig)
+    pub fn check_integrity(&self) -> Result<bool, InvalidSig> {
+        match self.sig {
+            Some(sig) => {
+                self.pk.verify(self.to_message(), sig)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 
@@ -121,8 +127,6 @@ pub enum SsiParseError {
     NoUriScheme,
     /// SSI must start with 'ssi:' prefix (URI scheme).
     InvalidScheme(String),
-    /// the SSI must be signed
-    Unsigned,
     /// SSI contains invalid attribute '{0}'.
     InvalidQueryParam(String),
     /// SSI contains unknown attribute '{0}'.
@@ -164,7 +168,7 @@ impl FromStr for Ssi {
         let pk = uri.path().as_str();
         let pk = SsiPub::from_str(pk).map_err(SsiParseError::InvalidPub)?;
 
-        let query = uri.query().ok_or(SsiParseError::Unsigned)?.as_str();
+        let query = uri.query().unwrap_or_default().as_str();
 
         let mut expiry = None;
         let mut sig = None;
@@ -189,9 +193,6 @@ impl FromStr for Ssi {
             }
         }
 
-        let Some(sig) = sig else {
-            return Err(SsiParseError::Unsigned);
-        };
         let ssi = Self {
             pk,
             uids,
@@ -208,18 +209,23 @@ impl Display for Ssi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         const SET: &AsciiSet = &CONTROLS.add(b'?').add(b'&').add(b'+').add(b'=');
 
-        write!(f, "{}?", self.pk)?;
+        let mut sep = '?';
+        write!(f, "{}", self.pk)?;
 
         for uid in &self.uids {
             let uid = uid.to_string().replace(['<', '>'], "");
-            write!(f, "uid={}&", utf8_percent_encode(&uid, SET).to_string().replace(' ', "+"),)?;
+            write!(f, "{sep}uid={}", utf8_percent_encode(&uid, SET).to_string().replace(' ', "+"),)?;
+            sep = '&';
         }
 
         if let Some(expiry) = self.expiry {
-            write!(f, "expiry={}&", expiry.format("%Y-%m-%d"))?;
+            write!(f, "{sep}expiry={}&", expiry.format("%Y-%m-%d"))?;
+            sep = '&';
         }
 
-        write!(f, "sig={}", self.sig)?;
+        if let Some(sig) = self.sig {
+            write!(f, "{sep}sig={}", sig)?;
+        }
 
         Ok(())
     }
