@@ -20,18 +20,14 @@
 // limitations under the License.
 
 use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::str::FromStr;
 
-use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use ec25519::{KeyPair, Noise, PublicKey, SecretKey, Seed, Signature};
 
 use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, From)]
 pub struct Ed25519Secret(pub(crate) SecretKey);
 
 impl Ord for Ed25519Secret {
@@ -46,18 +42,6 @@ impl Hash for Ed25519Secret {
     fn hash<H: Hasher>(&self, state: &mut H) { self.0.as_slice().hash(state) }
 }
 
-impl DisplayBaid64<64> for Ed25519Secret {
-    const HRI: &'static str = "ed25519-priv";
-    const CHUNKING: bool = false;
-    const PREFIX: bool = true;
-    const EMBED_CHECKSUM: bool = true;
-    const MNEMONIC: bool = false;
-
-    fn to_baid64_payload(&self) -> [u8; 64] { <[u8; 64]>::from(self.clone()) }
-}
-
-impl FromBaid64Str<64> for Ed25519Secret {}
-
 impl From<Ed25519Secret> for [u8; 64] {
     fn from(ssi: Ed25519Secret) -> Self { *ssi.0.deref() }
 }
@@ -66,15 +50,6 @@ impl From<[u8; 64]> for Ed25519Secret {
     fn from(value: [u8; 64]) -> Self {
         Self(SecretKey::from_slice(&value).expect("invalid secret key"))
     }
-}
-
-impl Display for Ed25519Secret {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
-}
-
-impl FromStr for Ed25519Secret {
-    type Err = Baid64ParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Self::from_baid64_str(s) }
 }
 
 impl Ed25519Secret {

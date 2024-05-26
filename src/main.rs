@@ -252,7 +252,7 @@ fn exec(command: Command) -> Result<(), CliError> {
                 .map_err(CliError::Password)?;
 
             eprintln!("Generating new {algo} identity....");
-            let mut secret = match prefix {
+            let secret = match prefix {
                 Some(prefix) => SsiSecret::vanity(&prefix, algo, chain, threads),
                 None => SsiSecret::new(algo, chain),
             };
@@ -260,11 +260,7 @@ fn exec(command: Command) -> Result<(), CliError> {
             let ssi = Ssi::new(uids, expiry, &secret);
             println!("{ssi}");
 
-            if !passwd.is_empty() {
-                secret.conceal(passwd);
-            }
-
-            runtime.secrets.insert(secret);
+            runtime.secrets.insert(secret.conceal(passwd));
             runtime.identities.insert(ssi);
 
             runtime.store().map_err(CliError::Store)?;

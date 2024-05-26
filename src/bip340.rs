@@ -20,18 +20,14 @@
 // limitations under the License.
 
 use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::str::FromStr;
 
-use baid64::{Baid64ParseError, DisplayBaid64, FromBaid64Str};
 use secp256k1::schnorr::Signature;
 use secp256k1::{Keypair, Message, SecretKey, XOnlyPublicKey, SECP256K1};
 
 use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, From)]
 pub struct Bip340Secret(pub(crate) SecretKey);
 
 impl Ord for Bip340Secret {
@@ -46,18 +42,6 @@ impl Hash for Bip340Secret {
     fn hash<H: Hasher>(&self, state: &mut H) { self.0.secret_bytes().hash(state) }
 }
 
-impl DisplayBaid64 for Bip340Secret {
-    const HRI: &'static str = "bip340-priv";
-    const CHUNKING: bool = false;
-    const PREFIX: bool = true;
-    const EMBED_CHECKSUM: bool = true;
-    const MNEMONIC: bool = false;
-
-    fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(self.clone()) }
-}
-
-impl FromBaid64Str for Bip340Secret {}
-
 impl From<Bip340Secret> for [u8; 32] {
     fn from(ssi: Bip340Secret) -> Self { ssi.0.secret_bytes() }
 }
@@ -66,15 +50,6 @@ impl From<[u8; 32]> for Bip340Secret {
     fn from(value: [u8; 32]) -> Self {
         Self(SecretKey::from_slice(&value).expect("invalid secret key"))
     }
-}
-
-impl Display for Bip340Secret {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result { self.fmt_baid64(f) }
-}
-
-impl FromStr for Bip340Secret {
-    type Err = Baid64ParseError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Self::from_baid64_str(s) }
 }
 
 impl Bip340Secret {

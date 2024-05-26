@@ -21,8 +21,8 @@
 
 use std::str::FromStr;
 
-use aes_gcm::aead::{Aead, OsRng};
-use aes_gcm::{AeadCore, Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, Nonce, OsRng};
+use aes_gcm::{AeadCore, Aes256Gcm, KeyInit};
 use amplify::confinement::{Confined, SmallOrdMap, U64 as U64MAX};
 use amplify::{Bytes32, Wrapper};
 use armor::{ArmorHeader, ArmorParseError, AsciiArmor};
@@ -75,6 +75,7 @@ impl SymmetricKey {
 #[strict_type(lib = LIB_NAME_SSI)]
 pub struct Encrypted {
     pub keys: SmallOrdMap<SsiPub, Bytes32>,
+    pub nonce: [u8; 12],
     pub data: Confined<Vec<u8>, 0, U64MAX>,
 }
 
@@ -91,7 +92,7 @@ impl AsciiArmor for Encrypted {
 
     fn to_ascii_armored_data(&self) -> Vec<u8> {
         self.to_strict_serialized::<U64MAX>()
-            .expect("64 bits will not error")
+            .expect("64 bits will never error")
             .into_inner()
     }
 
@@ -122,9 +123,10 @@ impl Encrypted {
                     .map_err(|_| EncryptionError::InvalidPubkey(pk))?,
             );
         }
-        let msg = encrypt(source, key);
+        let (nonce, msg) = encrypt(source, key);
         Ok(Self {
             keys: Confined::try_from(keys).map_err(|_| EncryptionError::TooManyReceivers)?,
+            nonce: nonce.into(),
             data: Confined::from_collection_unsafe(msg),
         })
     }
@@ -140,7 +142,7 @@ impl Encrypted {
         let key = pair
             .decrypt_key(key)
             .map_err(|_| DecryptionError::InvalidPubkey(pair.pk))?;
-        Ok(decrypt(self.data.to_inner(), key))
+        Ok(decrypt(self.data.as_slice(), self.nonce.into(), key))
     }
 }
 
@@ -179,7 +181,7 @@ impl SsiPair {
     }
 }
 
-pub fn encrypt(source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+pub fn encrypt(source: Vec<u8>, key: impl AsRef<[u8]>) -> (Nonce<Aes256Gcm>, Vec<u8>) {
     let key = Sha256::digest(key.as_ref());
     let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
 
@@ -189,23 +191,17 @@ pub fn encrypt(source: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
     let ciphered_data = cipher
         .encrypt(&nonce, source.as_ref())
         .expect("failed to encrypt");
-    // combining nonce and encrypted data together
-    // for storage purpose
-    let mut encrypted_data: Vec<u8> = nonce.to_vec();
-    encrypted_data.extend_from_slice(&ciphered_data);
 
-    encrypted_data
+    (nonce, ciphered_data)
 }
 
-pub fn decrypt(encrypted: Vec<u8>, key: impl AsRef<[u8]>) -> Vec<u8> {
+pub fn decrypt(encrypted: &[u8], nonce: Nonce<Aes256Gcm>, key: impl AsRef<[u8]>) -> Vec<u8> {
     let key = Sha256::digest(key.as_ref());
     let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
 
-    let (nonce_arr, ciphered_data) = encrypted.split_at(12);
-    let nonce = Nonce::from_slice(nonce_arr);
     let cipher = Aes256Gcm::new(key);
 
     cipher
-        .decrypt(nonce, ciphered_data)
+        .decrypt(&nonce, encrypted)
         .expect("failed to decrypt data")
 }

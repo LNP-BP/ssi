@@ -42,6 +42,6 @@ pub use public::{
     SsiSig, UnknownAlgo, UnknownChain, VerifyError,
 };
 pub use runtime::{LoadError, SignerError, SsiRuntime, SSI_DIR};
-pub use secret::{SecretParseError, SsiPair, SsiSecret};
+pub use secret::{EncryptedSecret, RevealError, SecretParseError, SsiPair, SsiSecret};
 
 pub const LIB_NAME_SSI: &str = "SSI";

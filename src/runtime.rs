@@ -29,7 +29,9 @@ use std::path::PathBuf;
 
 use baid64::Baid64ParseError;
 
-use crate::{Fingerprint, SecretParseError, Ssi, SsiPair, SsiParseError, SsiQuery, SsiSecret};
+use crate::{
+    EncryptedSecret, Fingerprint, SecretParseError, Ssi, SsiPair, SsiParseError, SsiQuery,
+};
 
 #[derive(Debug, Display, Error, From)]
 #[display(inner)]
@@ -57,7 +59,7 @@ pub enum SignerError {
 }
 
 pub struct SsiRuntime {
-    pub secrets: BTreeSet<SsiSecret>,
+    pub secrets: BTreeSet<EncryptedSecret>,
     pub identities: BTreeSet<Ssi>,
 }
 
@@ -156,12 +158,9 @@ impl SsiRuntime {
             .secrets
             .iter()
             .find_map(|s| {
-                let mut s = (*s).clone();
-                if !passwd.is_empty() {
-                    s.reveal(passwd);
-                }
-                if s.to_public() == ssi.pk {
-                    Some(s)
+                let sk = s.reveal(passwd).ok()?;
+                if sk.to_public() == ssi.pk {
+                    Some(sk)
                 } else {
                     None
                 }
@@ -170,7 +169,5 @@ impl SsiRuntime {
         Ok(SsiPair::new(ssi, sk))
     }
 
-    pub fn is_signing(&self, fp: Fingerprint) -> bool {
-        self.secrets.iter().any(|s| s.fingerprint() == fp)
-    }
+    pub fn is_signing(&self, fp: Fingerprint) -> bool { self.secrets.iter().any(|s| s.fp == fp) }
 }

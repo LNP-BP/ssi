@@ -670,6 +670,7 @@ dependencies = [
  "amplify",
  "ascii-armor",
  "baid64",
+ "base64",
  "chrono",
  "clap",
  "crossbeam-channel",

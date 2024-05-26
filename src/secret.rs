@@ -23,8 +23,15 @@ use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use amplify::Bytes32;
-use baid64::Baid64ParseError;
+use aes_gcm::aead::Nonce;
+use aes_gcm::Aes256Gcm;
+use amplify::hex::{FromHex, ToHex};
+use amplify::{hex, Bytes32};
+use baid64::{Baid64ParseError, BAID64_ALPHABET};
+use base64::alphabet::Alphabet;
+use base64::engine::general_purpose::NO_PAD;
+use base64::engine::GeneralPurpose;
+use base64::Engine;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
@@ -33,10 +40,35 @@ use crate::{
     SsiSig,
 };
 
+#[derive(Clone, Eq, PartialEq, Hash, Debug, Display, Error, From)]
+#[display(doc_comments)]
+pub enum RevealError {
+    #[from(ec25519::Error)]
+    #[from(secp256k1::Error)]
+    /// invalid password.
+    InvalidPassword,
+
+    /// unsupported algorithm #{0}.
+    Unsupported(u8),
+}
+
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum SsiSecret {
-    Bip340(Fingerprint, Bip340Secret),
-    Ed25519(Fingerprint, Ed25519Secret),
+pub struct EncryptedSecret {
+    pub fp: Fingerprint,
+    pub nonce: Nonce<Aes256Gcm>,
+    pub algo: Algo,
+    pub key: Vec<u8>,
+}
+
+impl EncryptedSecret {
+    pub fn reveal(&self, passwd: impl AsRef<str>) -> Result<SsiSecret, RevealError> {
+        let sk = decrypt(&self.key, self.nonce, passwd.as_ref());
+        match self.algo {
+            Algo::Ed25519 => Ok(ec25519::SecretKey::from_slice(&sk)?.into()),
+            Algo::Bip340 => Ok(secp256k1::SecretKey::from_slice(&sk)?.into()),
+            Algo::Other(algo) => Err(RevealError::Unsupported(algo)),
+        }
+    }
 }
 
 #[derive(Debug, Display, Error, From)]
@@ -44,35 +76,79 @@ pub enum SsiSecret {
 pub enum SecretParseError {
     /// incomplete private key data.
     Incomplete,
-    /// invalid fingerprint data in private key - {0}.
+
+    /// private key data misses key and signature scheme information.
+    NoAlgo,
+
+    /// private key signature scheme {0} is not supported yet.
+    UnsupportedAlgo(String),
+
+    #[from]
+    /// private key has invalid nonce value - {0}
+    InvalidNonce(hex::Error),
+
+    /// invalid fingerprint data in private key - {0}
     InvalidFingerprint(Baid64ParseError),
+
     #[from]
     /// invalid secret key data - {0}
-    InvalidSecret(Baid64ParseError),
+    Decode(base64::DecodeError),
 }
 
-impl FromStr for SsiSecret {
+impl FromStr for EncryptedSecret {
     type Err = SecretParseError;
 
     fn from_str(mut s: &str) -> Result<Self, Self::Err> {
-        s = s.trim_start_matches("ssi:");
-        let (fp, sk) = s.split_once('/').ok_or(SecretParseError::Incomplete)?;
+        s = s.trim_start_matches("ssi://");
+        let (prefix, sk) = s.split_once('/').ok_or(SecretParseError::Incomplete)?;
+        let (fp, nonce) = prefix.split_once(':').ok_or(SecretParseError::Incomplete)?;
         let fp = Fingerprint::from_str(fp).map_err(SecretParseError::InvalidFingerprint)?;
-        if sk.starts_with("bip340-priv") {
-            Ok(Self::Bip340(fp, Bip340Secret::from_str(sk)?))
-        } else {
-            Ok(Self::Ed25519(fp, Ed25519Secret::from_str(sk)?))
-        }
+
+        let alphabet = Alphabet::new(BAID64_ALPHABET).expect("invalid Baid64 alphabet");
+        let engine = GeneralPurpose::new(&alphabet, NO_PAD);
+
+        let (schema, key) = sk.split_once(':').ok_or(SecretParseError::NoAlgo)?;
+        let nonce = <[u8; 12]>::from_hex(nonce)?.into();
+        let algo = match schema {
+            "bip340-priv" => Algo::Bip340,
+            "ed25519-priv" => Algo::Ed25519,
+            other => return Err(SecretParseError::UnsupportedAlgo(other.to_owned())),
+        };
+
+        let key = engine.decode(key)?;
+
+        Ok(Self {
+            fp,
+            nonce,
+            algo,
+            key,
+        })
     }
 }
 
-impl Display for SsiSecret {
+impl Display for EncryptedSecret {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            SsiSecret::Bip340(fp, sk) => write!(f, "{fp}/{sk}"),
-            SsiSecret::Ed25519(fp, sk) => write!(f, "{fp}/{sk}"),
-        }
+        let alphabet = Alphabet::new(BAID64_ALPHABET).expect("invalid Baid64 alphabet");
+        let engine = GeneralPurpose::new(&alphabet, NO_PAD);
+        write!(
+            f,
+            "ssi://{}:{}/{}-priv:{}",
+            self.fp,
+            self.nonce.to_hex(),
+            self.algo,
+            engine.encode(&self.key)
+        )
     }
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, From)]
+pub enum SsiSecret {
+    #[from]
+    #[from(secp256k1::SecretKey)]
+    Bip340(Bip340Secret),
+    #[from]
+    #[from(ec25519::SecretKey)]
+    Ed25519(Ed25519Secret),
 }
 
 impl SsiSecret {
@@ -86,14 +162,12 @@ impl SsiSecret {
 
     pub fn new_ed25519(chain: Chain) -> Self {
         let sk = Ed25519Secret::new(chain);
-        let fp = sk.to_public().fingerprint();
-        Self::Ed25519(fp, sk)
+        Self::Ed25519(sk)
     }
 
     pub fn new_bip340(chain: Chain) -> Self {
         let sk = Bip340Secret::new(chain);
-        let fp = sk.to_public().fingerprint();
-        Self::Bip340(fp, sk)
+        Self::Bip340(sk)
     }
 
     pub fn vanity(prefix: &str, algo: Algo, chain: Chain, threads: u8) -> Self {
@@ -117,54 +191,39 @@ impl SsiSecret {
 
     pub fn algorithm(&self) -> Algo {
         match self {
-            SsiSecret::Bip340(_, _) => Algo::Bip340,
-            SsiSecret::Ed25519(_, _) => Algo::Ed25519,
-        }
-    }
-
-    pub fn fingerprint(&self) -> Fingerprint {
-        match self {
-            SsiSecret::Bip340(fp, _) | SsiSecret::Ed25519(fp, _) => *fp,
+            SsiSecret::Bip340(_) => Algo::Bip340,
+            SsiSecret::Ed25519(_) => Algo::Ed25519,
         }
     }
 
     pub fn to_public(&self) -> SsiPub {
         match self {
-            SsiSecret::Bip340(_, sk) => sk.to_public(),
-            SsiSecret::Ed25519(_, sk) => sk.to_public(),
+            SsiSecret::Bip340(sk) => sk.to_public(),
+            SsiSecret::Ed25519(sk) => sk.to_public(),
         }
     }
 
     pub fn sign(&self, msg: [u8; 32]) -> SsiSig {
         match self {
-            SsiSecret::Bip340(_, sk) => sk.sign(msg),
-            SsiSecret::Ed25519(_, sk) => sk.sign(msg),
+            SsiSecret::Bip340(sk) => sk.sign(msg),
+            SsiSecret::Ed25519(sk) => sk.sign(msg),
         }
     }
 
-    pub fn conceal(&mut self, passwd: impl AsRef<str>) {
-        self.replace(&encrypt(self.to_vec(), passwd.as_ref()));
-    }
-
-    pub fn reveal(&mut self, passwd: impl AsRef<str>) {
-        self.replace(&decrypt(self.to_vec(), passwd.as_ref()));
+    pub fn conceal(&self, passwd: impl AsRef<str>) -> EncryptedSecret {
+        let (nonce, key) = encrypt(self.to_vec(), passwd.as_ref());
+        EncryptedSecret {
+            fp: self.to_public().fingerprint(),
+            nonce,
+            algo: self.algorithm(),
+            key,
+        }
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
         match self {
-            SsiSecret::Bip340(_, sk) => sk.0.secret_bytes().to_vec(),
-            SsiSecret::Ed25519(_, sk) => sk.0.to_vec(),
-        }
-    }
-
-    fn replace(&mut self, secret: &[u8]) {
-        match self {
-            SsiSecret::Bip340(_, sk) => {
-                sk.0 = secp256k1::SecretKey::from_slice(secret).expect("same size")
-            }
-            SsiSecret::Ed25519(_, sk) => {
-                sk.0 = ec25519::SecretKey::from_slice(secret).expect("same size")
-            }
+            SsiSecret::Bip340(sk) => sk.0.secret_bytes().to_vec(),
+            SsiSecret::Ed25519(sk) => sk.0.to_vec(),
         }
     }
 }

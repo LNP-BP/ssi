@@ -25,6 +25,7 @@ amplify = "4.6.0"
 strict_encoding = "2.7.0-beta.4"
 ascii-armor = "0.7.0"
 baid64 = "0.2.2"
+base64 = "0.22.1"
 secp256k1 = { version = "0.29.0", features = ["rand", "global-context", "rand-std"] }
 ec25519 = "0.1.0"
 rand = "0.8.5"
