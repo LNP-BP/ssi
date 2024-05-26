@@ -225,11 +225,11 @@ fn main() {
 
             let passwd = rpassword::prompt_password("Password for the private key: ")
                 .expect("unable to read password");
-            let msg = get_message(text, file);
             let signer = runtime
                 .find_signer(ssi, &passwd)
                 .expect("unknown signing identity");
             eprintln!("Using key {signer}");
+            let msg = get_message(text, file);
             let cert = signer.sign(msg);
             if full {
                 println!("{cert:#}");
@@ -306,6 +306,7 @@ fn get_message(text: Option<String>, file: Option<PathBuf>) -> Vec<u8> {
         (Some(t), None) => t.into_bytes(),
         (None, Some(f)) => fs::read(f).expect("unable to read the file"),
         (None, None) => {
+            eprintln!("Type or paste your message and press Ctrl+D on the last empty line:");
             let mut s = String::new();
             stdin()
                 .read_to_string(&mut s)
