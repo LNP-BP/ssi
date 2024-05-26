@@ -33,7 +33,7 @@ use crate::{Fingerprint, SecretParseError, Ssi, SsiPair, SsiParseError, SsiQuery
 
 #[derive(Debug, Display, Error, From)]
 #[display(inner)]
-pub enum Error {
+pub enum LoadError {
     #[from]
     Io(io::Error),
 
@@ -47,13 +47,22 @@ pub enum Error {
     Ssi(SsiParseError),
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Display, Error, From)]
+#[display(doc_comments)]
+pub enum SignerError {
+    /// unknown identity.
+    UnknownIdentity,
+    /// wrong password.
+    WrongPassword,
+}
+
 pub struct SsiRuntime {
     pub secrets: BTreeSet<SsiSecret>,
     pub identities: BTreeSet<Ssi>,
 }
 
 impl SsiRuntime {
-    pub fn load() -> Result<Self, Error> {
+    pub fn load() -> Result<Self, LoadError> {
         let data_dir = PathBuf::from(shellexpand::tilde(SSI_DIR).to_string());
         fs::create_dir_all(&data_dir)?;
 
@@ -134,20 +143,31 @@ impl SsiRuntime {
         })
     }
 
-    pub fn find_signer(&self, query: impl Into<SsiQuery>, passwd: &str) -> Option<SsiPair> {
-        let ssi = self.find_identity(query.into()).cloned()?;
-        let sk = self.secrets.iter().find_map(|s| {
-            let mut s = (*s).clone();
-            if !passwd.is_empty() {
-                s.reveal(passwd);
-            }
-            if s.to_public() == ssi.pk {
-                Some(s)
-            } else {
-                None
-            }
-        })?;
-        Some(SsiPair::new(ssi, sk))
+    pub fn find_signer(
+        &self,
+        query: impl Into<SsiQuery>,
+        passwd: &str,
+    ) -> Result<SsiPair, SignerError> {
+        let ssi = self
+            .find_identity(query.into())
+            .cloned()
+            .ok_or(SignerError::UnknownIdentity)?;
+        let sk = self
+            .secrets
+            .iter()
+            .find_map(|s| {
+                let mut s = (*s).clone();
+                if !passwd.is_empty() {
+                    s.reveal(passwd);
+                }
+                if s.to_public() == ssi.pk {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+            .ok_or(SignerError::WrongPassword)?;
+        Ok(SsiPair::new(ssi, sk))
     }
 
     pub fn is_signing(&self, fp: Fingerprint) -> bool {

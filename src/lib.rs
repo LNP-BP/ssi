@@ -36,12 +36,12 @@ mod runtime;
 pub use bip340::Bip340Secret;
 pub use ed25519::Ed25519Secret;
 pub use encrypt::{decrypt, encrypt, DecryptionError, Encrypted, EncryptionError, SymmetricKey};
-pub use identity::{Ssi, SsiParseError, Uid};
+pub use identity::{Ssi, SsiParseError, Uid, UidParseError};
 pub use public::{
     Algo, CertParseError, Chain, Fingerprint, InvalidPubkey, InvalidSig, SsiCert, SsiPub, SsiQuery,
     SsiSig, UnknownAlgo, UnknownChain, VerifyError,
 };
-pub use runtime::{Error, SsiRuntime, SSI_DIR};
+pub use runtime::{LoadError, SignerError, SsiRuntime, SSI_DIR};
 pub use secret::{SecretParseError, SsiPair, SsiSecret};
 
 pub const LIB_NAME_SSI: &str = "SSI";

@@ -20,18 +20,23 @@
 // limitations under the License.
 
 #[macro_use]
+extern crate amplify;
+#[macro_use]
 extern crate clap;
 
 use std::collections::BTreeSet;
-use std::fs;
 use std::io::{stdin, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::{fs, io};
 
-use armor::AsciiArmor;
+use armor::{ArmorParseError, AsciiArmor};
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use ssi::{Algo, Chain, Encrypted, InvalidSig, Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid};
+use ssi::{
+    Algo, Chain, DecryptionError, Encrypted, EncryptionError, InvalidSig, LoadError, SignerError,
+    Ssi, SsiCert, SsiQuery, SsiRuntime, SsiSecret, Uid, UidParseError,
+};
 
 #[derive(Parser, Clone, Debug)]
 pub struct Args {
@@ -139,12 +144,60 @@ pub enum Command {
     },
 }
 
+#[derive(Debug, Display, Error, From)]
+#[display(doc_comments)]
+enum CliError {
+    #[from]
+    /// unable to load identities - {0}
+    Load(LoadError),
+
+    /// unable to store identities - {0}
+    Store(io::Error),
+
+    /// unable to load signer - {0}
+    #[from]
+    Signer(SignerError),
+
+    /// error reading password - {0}
+    Password(io::Error),
+
+    /// invalid expiry date.
+    InvalidExpiry,
+
+    #[from]
+    #[display(inner)]
+    InvalidUid(UidParseError),
+
+    /// the provided message is not ASCII armored.
+    NoArmor,
+
+    /// unable to parse armored message - {0}
+    #[from]
+    InvalidArmor(ArmorParseError),
+
+    /// unable to read message - {0}
+    ReadMessage(io::Error),
+
+    #[from]
+    #[display(inner)]
+    Encrypt(EncryptionError),
+
+    #[from]
+    #[display(inner)]
+    Decrypt(DecryptionError),
+}
+
 fn main() {
     let args = Args::parse();
+    if let Err(err) = exec(args.command) {
+        eprintln!("Error: {err}");
+    }
+}
 
-    let mut runtime = SsiRuntime::load().expect("unable to load data");
+fn exec(command: Command) -> Result<(), CliError> {
+    let mut runtime = SsiRuntime::load()?;
 
-    match args.command {
+    match command {
         Command::List { signing } => {
             let now = Utc::now();
             for ssi in &runtime.identities {
@@ -181,20 +234,22 @@ fn main() {
             expiry,
             uid,
         } => {
-            let expiry = expiry.map(|expiry| {
-                DateTime::parse_from_str(&expiry, "%Y-%m-%d")
-                    .expect("invalid expiry date")
-                    .to_utc()
-            });
+            let expiry = expiry
+                .map(|expiry| {
+                    DateTime::parse_from_str(&expiry, "%Y-%m-%d")
+                        .as_ref()
+                        .map(DateTime::to_utc)
+                        .map_err(|_| CliError::InvalidExpiry)
+                })
+                .transpose()?;
             let uids = uid
                 .iter()
                 .map(String::as_str)
                 .map(Uid::from_str)
-                .collect::<Result<_, _>>()
-                .expect("invalid UID");
+                .collect::<Result<_, _>>()?;
 
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
-                .expect("unable to read password");
+                .map_err(CliError::Password)?;
 
             eprintln!("Generating new {algo} identity....");
             let mut secret = match prefix {
@@ -212,7 +267,7 @@ fn main() {
             runtime.secrets.insert(secret);
             runtime.identities.insert(ssi);
 
-            runtime.store().expect("unable to save data");
+            runtime.store().map_err(CliError::Store)?;
         }
 
         Command::Sign {
@@ -224,12 +279,10 @@ fn main() {
             eprintln!("Signing with {ssi} ...");
 
             let passwd = rpassword::prompt_password("Password for the private key: ")
-                .expect("unable to read password");
-            let signer = runtime
-                .find_signer(ssi, &passwd)
-                .expect("unknown signing identity");
+                .map_err(CliError::Password)?;
+            let signer = runtime.find_signer(ssi, &passwd)?;
             eprintln!("Using key {signer}");
-            let msg = get_message(text, file);
+            let msg = get_message(text, file)?;
             let cert = signer.sign(msg);
             if full {
                 println!("{cert:#}");
@@ -244,7 +297,7 @@ fn main() {
                 .find_identity(signature.fp)
                 .map(|ssi| ssi.pk)
                 .or(signature.pk)
-                .expect("unknown signing identity");
+                .ok_or(SignerError::UnknownIdentity)?;
             match pk.verify(signature.msg.to_byte_array(), signature.sig) {
                 Ok(_) => eprintln!("valid"),
                 Err(err) => eprintln!("invalid: {err}"),
@@ -253,10 +306,10 @@ fn main() {
         }
         Command::Recover => {
             let passwd = rpassword::prompt_password("Password for private key encryption: ")
-                .expect("unable to read password");
+                .map_err(CliError::Password)?;
             let mut identities = BTreeSet::new();
             for mut ssi in runtime.identities.iter().cloned() {
-                let Some(secret) = runtime.find_signer(ssi.pk.fingerprint(), &passwd) else {
+                let Ok(secret) = runtime.find_signer(ssi.pk.fingerprint(), &passwd) else {
                     identities.insert(ssi);
                     continue;
                 };
@@ -271,14 +324,17 @@ fn main() {
             text,
             file,
         } => {
-            let msg = get_message(text, file);
-            let receivers = receiver.into_iter().map(|query| {
-                runtime
-                    .find_identity(query.clone())
-                    .unwrap_or_else(|| panic!("unknown identity {query}"))
-                    .pk
-            });
-            let encrypted = Encrypted::encrypt(msg, receivers).expect("unable to encrypt");
+            let msg = get_message(text, file)?;
+            let receivers = receiver
+                .into_iter()
+                .map(|query| {
+                    runtime
+                        .find_identity(query.clone())
+                        .map(|i| i.pk)
+                        .ok_or(SignerError::UnknownIdentity)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let encrypted = Encrypted::encrypt(msg, receivers)?;
             println!("{encrypted}");
         }
         Command::Decrypt { key, text, file } => {
@@ -286,32 +342,30 @@ fn main() {
             eprintln!("Decrypting with {key} ...");
 
             let passwd = rpassword::prompt_password("Password for the private key: ")
-                .expect("unable to read password");
-            let pair = runtime
-                .find_signer(key, &passwd)
-                .expect("unknown private key");
+                .map_err(CliError::Password)?;
+            let pair = runtime.find_signer(key, &passwd)?;
             eprintln!("Using key {pair}");
 
-            let s = String::from_utf8(get_message(text, file))
-                .expect("the provided message is not ASCII armored");
-            let encrypted = Encrypted::from_ascii_armored_str(&s).expect("invalid ASCII armor");
-            let msg = encrypted.decrypt(pair).expect("can't decrypt the message");
+            let s = String::from_utf8(get_message(text, file)?).map_err(|_| CliError::NoArmor)?;
+            let encrypted = Encrypted::from_ascii_armored_str(&s)?;
+            let msg = encrypted.decrypt(pair)?;
             println!("{}", String::from_utf8_lossy(&msg));
         }
     }
+    Ok(())
 }
 
-fn get_message(text: Option<String>, file: Option<PathBuf>) -> Vec<u8> {
+fn get_message(text: Option<String>, file: Option<PathBuf>) -> Result<Vec<u8>, CliError> {
     match (text, file) {
-        (Some(t), None) => t.into_bytes(),
-        (None, Some(f)) => fs::read(f).expect("unable to read the file"),
+        (Some(t), None) => Ok(t.into_bytes()),
+        (None, Some(f)) => fs::read(f).map_err(CliError::ReadMessage),
         (None, None) => {
             eprintln!("Type or paste your message and press Ctrl+D on the last empty line:");
             let mut s = String::new();
             stdin()
                 .read_to_string(&mut s)
-                .expect("unable to read standard input");
-            s.into_bytes()
+                .map_err(CliError::ReadMessage)?;
+            Ok(s.into_bytes())
         }
         _ => unreachable!(),
     }
