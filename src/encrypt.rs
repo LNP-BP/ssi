@@ -207,3 +207,39 @@ pub fn decrypt(
     let key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
     Aes256Gcm::new(key).decrypt(&nonce, encrypted)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{Chain, SsiSecret};
+
+    #[test]
+    fn aes_roundcrypt() {
+        let key = "Some key";
+        let source = b"Message to encrypt";
+
+        let (nonce, encrypted) = encrypt(source.to_vec(), key);
+        let decrypted = decrypt(&encrypted, nonce, key).unwrap();
+        assert_eq!(decrypted, source);
+    }
+
+    #[test]
+    fn ed25519_keycrypt() {
+        let sk = SsiSecret::new(Algo::Ed25519, Chain::Bitcoin);
+        let pair = SsiPair::from(sk);
+        let key = SymmetricKey::new();
+        let encrypted = pair.pk.encrypt_key(&key).unwrap();
+        let decrypted = pair.decrypt_key(encrypted).unwrap();
+        assert_eq!(key.0, decrypted.0);
+    }
+
+    #[test]
+    fn ed25519_roundcrypt() {
+        let key = SsiSecret::new(Algo::Ed25519, Chain::Bitcoin);
+        let source = b"Message to encrypt";
+
+        let encrypted = Encrypted::encrypt(source.to_vec(), [key.to_public()]).unwrap();
+        let decrypted = encrypted.decrypt(key).unwrap();
+        assert_eq!(decrypted, source);
+    }
+}
