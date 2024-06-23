@@ -58,12 +58,14 @@ impl Ed25519Secret {
             let pair = KeyPair::from_seed(Seed::generate());
             let pk = pair.pk;
 
+            if pk[30] != u8::from(Algo::Ed25519) || pk[31] != u8::from(chain) {
+                continue;
+            }
+
             let sig = pair.sk.sign("test", Some(Noise::generate()));
             pk.verify("test", &sig).expect("unable to create key");
 
-            if pk[30] == u8::from(Algo::Ed25519) && pk[31] == u8::from(chain) {
-                return Self(pair.sk);
-            }
+            return Self(pair.sk);
         }
     }
 
