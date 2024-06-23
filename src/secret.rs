@@ -215,7 +215,7 @@ impl SsiSecret {
     }
 
     pub fn conceal(&self, passwd: impl AsRef<str>) -> EncryptedSecret {
-        let (nonce, key) = encrypt(self.to_vec(), passwd.as_ref());
+        let (nonce, key) = encrypt(self.as_secret_bytes().to_vec(), passwd.as_ref());
         EncryptedSecret {
             fp: self.to_public().fingerprint(),
             nonce,
@@ -224,10 +224,10 @@ impl SsiSecret {
         }
     }
 
-    pub fn to_vec(&self) -> Vec<u8> {
+    pub fn as_secret_bytes(&self) -> &[u8] {
         match self {
-            SsiSecret::Bip340(sk) => sk.0.secret_bytes().to_vec(),
-            SsiSecret::Ed25519(sk) => sk.0.to_vec(),
+            SsiSecret::Bip340(sk) => sk.0.as_ref(),
+            SsiSecret::Ed25519(sk) => sk.0.as_ref(),
         }
     }
 }
