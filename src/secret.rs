@@ -244,6 +244,16 @@ pub struct SsiPair {
     pub expiry: Option<DateTime<Utc>>,
 }
 
+impl From<SsiSecret> for SsiPair {
+    fn from(sk: SsiSecret) -> Self {
+        SsiPair {
+            pk: sk.to_public(),
+            sk,
+            expiry: None,
+        }
+    }
+}
+
 impl SsiPair {
     pub fn new(ssi: Ssi, sk: SsiSecret) -> Self {
         SsiPair {
