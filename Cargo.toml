@@ -27,7 +27,7 @@ ascii-armor = "0.7.1"
 baid64 = "0.2.2"
 base64 = "0.22.1"
 secp256k1 = { version = "0.29.0", features = ["rand", "global-context", "rand-std"] }
-ec25519 = "0.1.0"
+ec25519 = { version = "0.1.0", features = ["blind-keys"] }
 rand = "0.8.5"
 chrono = "0.4.38"
 clap = { version = "4.5.4", features = ["derive"], optional = true }
