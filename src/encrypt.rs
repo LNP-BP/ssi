@@ -24,15 +24,16 @@ use std::str::FromStr;
 use aes_gcm::aead::{Aead, Nonce, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, KeyInit};
 use amplify::confinement::{Confined, SmallOrdMap, U64 as U64MAX};
-use amplify::hex::ToHex;
 use amplify::Bytes32;
 use armor::{ArmorHeader, ArmorParseError, AsciiArmor};
-use ec25519::{edwards25519, KeyPair, Seed};
-use rand::random;
+use rand::thread_rng;
+use rust_elgamal::{
+    Ciphertext, CompressedRistretto, DecryptionKey, EncryptionKey, RistrettoPoint, Scalar,
+};
 use sha2::{Digest, Sha256};
 use strict_encoding::{StrictDeserialize, StrictSerialize};
 
-use crate::{Algo, InvalidPubkey, SsiPair, SsiPub, LIB_NAME_SSI};
+use crate::{Algo, SsiPair, SsiPub, LIB_NAME_SSI};
 
 #[derive(Copy, Clone, Debug, Display, Error)]
 pub enum EncryptionError {
@@ -46,8 +47,8 @@ pub enum EncryptionError {
 pub enum DecryptionError {
     #[display("the message can't be decrypted using key {0}.")]
     KeyMismatch(SsiPub),
-    #[display("invalid public key {0}.")]
-    InvalidPubkey(SsiPub),
+    #[display("non-canonical points")]
+    NonCanonical,
     #[from(aes_gcm::Error)]
     #[display("unable to decrypt data.")]
     Decrypt,
@@ -68,8 +69,12 @@ impl AsRef<[u8]> for SymmetricKey {
 
 impl SymmetricKey {
     pub fn new() -> Self {
-        let key = random::<[u8; 32]>();
-        Self(Bytes32::from_byte_array(key))
+        Self(
+            RistrettoPoint::random(&mut thread_rng())
+                .compress()
+                .to_bytes()
+                .into(),
+        )
     }
 }
 
@@ -121,10 +126,8 @@ impl Encrypted {
         let key = SymmetricKey::new();
         let mut keys = bmap![];
         for pk in receivers {
-            let (msg, c1) = pk
-                .encrypt_key(&key)
-                .map_err(|_| EncryptionError::InvalidPubkey(pk))?;
-            keys.insert(pk, (msg, Bytes32::from_slice_unsafe(c1.as_slice())));
+            let (c1, c2) = pk.encrypt_key(&key).inner();
+            keys.insert(pk, (c1.compress().to_bytes().into(), c2.compress().to_bytes().into()));
         }
         let (nonce, msg) = encrypt(source, key);
         Ok(Self {
@@ -136,81 +139,65 @@ impl Encrypted {
 
     pub fn decrypt(&self, pair: impl Into<SsiPair>) -> Result<Vec<u8>, DecryptionError> {
         let pair = pair.into();
-        let (msg, c1) = self
+        let (c1, c2) = self
             .keys
             .iter()
             .find(|(pk, _)| *pk == &pair.pk)
             .map(|(_, secret)| secret)
             .ok_or(DecryptionError::KeyMismatch(pair.pk))?;
-        let c1 = ec25519::PublicKey::new(c1.to_byte_array());
-        let key = pair
-            .decrypt_key(*msg, c1)
-            .map_err(|_| DecryptionError::InvalidPubkey(pair.pk))?;
+        let c1 = CompressedRistretto::from_slice(c1.as_slice())
+            .decompress()
+            .ok_or(DecryptionError::NonCanonical)?;
+        let c2 = CompressedRistretto::from_slice(c2.as_slice())
+            .decompress()
+            .ok_or(DecryptionError::NonCanonical)?;
+        let key = pair.decrypt_key(Ciphertext::from((c1, c2)));
         Ok(decrypt(self.data.as_slice(), self.nonce.into(), key)?)
     }
 }
 
 impl SsiPub {
-    pub fn encrypt_key(
-        &self,
-        key: &SymmetricKey,
-    ) -> Result<(Bytes32, ec25519::PublicKey), InvalidPubkey> {
+    pub fn encrypt_key(&self, key: &SymmetricKey) -> Ciphertext {
         match self.algo() {
             Algo::Ed25519 => self.encrypt_key_ed25519(key),
-            Algo::Bip340 | Algo::Other(_) => Err(InvalidPubkey),
+            Algo::Bip340 | Algo::Other(_) => {
+                todo!("only encryption with Ed25519 keys is currently supported")
+            }
         }
     }
 
-    pub fn encrypt_key_ed25519(
-        &self,
-        message: &SymmetricKey,
-    ) -> Result<(Bytes32, ec25519::PublicKey), InvalidPubkey> {
-        let pair = KeyPair::from_seed(Seed::generate());
-        let y = pair.sk;
-        let c1 = pair.pk;
-
-        let h =
-            edwards25519::GeP3::from_bytes_vartime(&self.to_byte_array()).ok_or(InvalidPubkey)?;
-        let s = edwards25519::ge_scalarmult(&y.seed().scalar(), &h);
-
-        println!("Shared secret generated: {}", s.to_bytes().to_hex());
-        let c2 = edwards25519::sc_mul(message.as_ref(), &s.to_bytes());
-        {
-            let s_neg = edwards25519::sc_invert(&s.to_bytes());
-            let key = edwards25519::sc_mul(&c2, &s_neg);
-            assert_eq!(key, message.0.to_byte_array())
-        }
-
-        // let c2 = edwards25519::ge_scalarmult(message.as_ref(), &s);
-        Ok((c2.into(), c1))
+    pub fn encrypt_key_ed25519(&self, message: &SymmetricKey) -> Ciphertext {
+        let enc_key = EncryptionKey::from(
+            CompressedRistretto::from_slice(&self.to_byte_array())
+                .decompress()
+                .expect("invalid pubkey"),
+        );
+        let point = CompressedRistretto::from_slice(&message.0.to_byte_array())
+            .decompress()
+            .expect("invalid symmetric key");
+        enc_key.encrypt(point, &mut thread_rng())
     }
 }
 
 impl SsiPair {
-    pub fn decrypt_key(
-        &self,
-        encrypted_message: Bytes32,
-        c1: ec25519::PublicKey,
-    ) -> Result<SymmetricKey, InvalidPubkey> {
+    pub fn decrypt_key(&self, encrypted_message: Ciphertext) -> SymmetricKey {
         match self.pk.algo() {
-            Algo::Ed25519 => self.decrypt_key_ed25519(encrypted_message, c1),
-            Algo::Bip340 | Algo::Other(_) => Err(InvalidPubkey),
+            Algo::Ed25519 => self.decrypt_key_ed25519(encrypted_message),
+            Algo::Bip340 | Algo::Other(_) => {
+                todo!("only encryption with Ed25519 keys is currently supported")
+            }
         }
     }
 
-    pub fn decrypt_key_ed25519(
-        &self,
-        encrypted_message: Bytes32,
-        c1: ec25519::PublicKey,
-    ) -> Result<SymmetricKey, InvalidPubkey> {
-        let c1 = edwards25519::GeP3::from_bytes_vartime(&c1).ok_or(InvalidPubkey)?;
-        let s = edwards25519::ge_scalarmult(&self.sk.secret_bytes(), &c1);
-        println!("Shared secret recovered: {}", s.to_bytes().to_hex());
-        let s_neg =
-            edwards25519::GeP3::from_bytes_negate_vartime(&s.to_bytes()).expect("valid pubkey");
-        let key = edwards25519::sc_mul(encrypted_message.as_ref(), &s_neg.to_bytes());
-        // let key = edwards25519::ge_scalarmult(encrypted_message.as_ref(), &s_neg);
-        Ok(SymmetricKey::from(key))
+    pub fn decrypt_key_ed25519(&self, encrypted_message: Ciphertext) -> SymmetricKey {
+        let dec_key = DecryptionKey::from(
+            Scalar::from_canonical_bytes(self.sk.secret_bytes()).expect("invalid secret key"),
+        );
+        dec_key
+            .decrypt(encrypted_message)
+            .compress()
+            .to_bytes()
+            .into()
     }
 }
 
@@ -258,8 +245,8 @@ mod test {
         let sk = SsiSecret::new(Algo::Ed25519, Chain::Bitcoin);
         let pair = SsiPair::from(sk);
         let key = SymmetricKey::new();
-        let (encrypted, c1) = pair.pk.encrypt_key(&key).unwrap();
-        let decrypted = pair.decrypt_key(encrypted, c1).unwrap();
+        let encrypted = pair.pk.encrypt_key(&key);
+        let decrypted = pair.decrypt_key(encrypted);
         assert_eq!(key.0, decrypted.0);
     }
 
