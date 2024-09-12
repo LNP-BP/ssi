@@ -28,7 +28,11 @@ use secp256k1::{Keypair, Message, SecretKey, XOnlyPublicKey, SECP256K1};
 use crate::{Algo, Chain, InvalidPubkey, InvalidSig, SsiPub, SsiSig};
 
 #[derive(Clone, Eq, PartialEq, From)]
-pub struct Bip340Secret(pub(crate) SecretKey);
+pub struct Bip340Secret {
+    pub chain: Chain,
+    pub algo: Algo,
+    pub(crate) key: SecretKey,
+}
 
 impl Ord for Bip340Secret {
     fn cmp(&self, other: &Self) -> Ordering { self.0.secret_bytes().cmp(&other.0.secret_bytes()) }
@@ -42,33 +46,21 @@ impl Hash for Bip340Secret {
     fn hash<H: Hasher>(&self, state: &mut H) { self.0.secret_bytes().hash(state) }
 }
 
-impl From<Bip340Secret> for [u8; 32] {
-    fn from(ssi: Bip340Secret) -> Self { ssi.0.secret_bytes() }
-}
-
-impl From<[u8; 32]> for Bip340Secret {
-    fn from(value: [u8; 32]) -> Self {
-        Self(SecretKey::from_slice(&value).expect("invalid secret key"))
-    }
-}
-
 impl Bip340Secret {
     pub fn new(chain: Chain) -> Self {
         use rand::thread_rng;
-        loop {
-            let sk = SecretKey::new(&mut thread_rng());
-            let (pk, _) = sk.x_only_public_key(SECP256K1);
-            let data = pk.serialize();
-            if data[30] == u8::from(Algo::Bip340) && data[31] == u8::from(chain) {
-                return Self(sk);
-            }
+        let key = SecretKey::new(&mut thread_rng());
+        Self {
+            chain,
+            algo: Algo::Bip340,
+            key,
         }
     }
 
-    pub fn to_public(&self) -> SsiPub {
-        let (pk, _) = self.0.x_only_public_key(SECP256K1);
+    pub fn to_public(&self, chain: Chain, algo: Algo) -> SsiPub {
+        let (pk, _) = self.key.x_only_public_key(SECP256K1);
         let data = pk.serialize();
-        SsiPub::from(data)
+        SsiPub::with(chain, algo, data)
     }
 
     pub fn sign(&self, msg: [u8; 32]) -> SsiSig {

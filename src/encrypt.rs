@@ -100,12 +100,12 @@ impl AsciiArmor for Encrypted {
     fn to_ascii_armored_data(&self) -> Vec<u8> {
         self.to_strict_serialized::<U64MAX>()
             .expect("64 bits will never error")
-            .into_inner()
+            .release()
     }
 
     fn with_headers_data(_headers: Vec<ArmorHeader>, data: Vec<u8>) -> Result<Self, Self::Err> {
         // TODO: Check receivers list
-        Ok(Self::from_strict_serialized::<U64MAX>(Confined::from_collection_unsafe(data))
+        Ok(Self::from_strict_serialized::<U64MAX>(Confined::from_checked(data))
             .expect("64 bits will never fail"))
     }
 }
@@ -133,7 +133,7 @@ impl Encrypted {
         Ok(Self {
             keys: Confined::try_from(keys).map_err(|_| EncryptionError::TooManyReceivers)?,
             nonce: nonce.into(),
-            data: Confined::from_collection_unsafe(msg),
+            data: Confined::from_checked(msg),
         })
     }
 

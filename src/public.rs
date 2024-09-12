@@ -187,35 +187,49 @@ impl Chain {
 pub struct SsiPub {
     chain: Chain,
     algo: Algo,
-    key: Bytes<30>,
+    key: Bytes32,
 }
 
-impl DisplayBaid64 for SsiPub {
+impl DisplayBaid64<34> for SsiPub {
     const HRI: &'static str = "ssi";
     const CHUNKING: bool = true;
     const PREFIX: bool = true;
     const EMBED_CHECKSUM: bool = false;
     const MNEMONIC: bool = false;
 
-    fn to_baid64_payload(&self) -> [u8; 32] { <[u8; 32]>::from(*self) }
+    fn to_baid64_payload(&self) -> [u8; 34] { <[u8; 34]>::from(*self) }
 }
 
-impl FromBaid64Str for SsiPub {}
+impl FromBaid64Str<34> for SsiPub {}
 
-impl From<SsiPub> for [u8; 32] {
-    fn from(ssi: SsiPub) -> Self { ssi.to_byte_array() }
+impl From<SsiPub> for [u8; 34] {
+    fn from(ssi: SsiPub) -> Self {
+        let mut bytes = [0u8; 34];
+        bytes[0] = ssi.algo.to_u8();
+        bytes[1] = ssi.chain.to_u8();
+        bytes[2..].copy_from_slice(&ssi.to_byte_array());
+        bytes
+    }
 }
 
-impl From<[u8; 32]> for SsiPub {
-    fn from(value: [u8; 32]) -> Self {
-        let key = Bytes::from_slice_unsafe(&value[0..30]);
-        let algo = Algo::from(value[30]);
-        let chain = Chain::from(value[31]);
+impl From<[u8; 34]> for SsiPub {
+    fn from(value: [u8; 34]) -> Self {
+        let algo = Algo::from(value[0]);
+        let chain = Chain::from(value[1]);
+        let key = Bytes::from_slice_unsafe(&value[2..]);
         Self { algo, key, chain }
     }
 }
 
 impl SsiPub {
+    pub fn with(chain: Chain, algo: Algo, key: impl Into<[u8; 32]>) -> Self {
+        Self {
+            chain,
+            algo,
+            key: Bytes32::from(key.into()),
+        }
+    }
+
     pub fn verify_text(self, text: &str, sig: SsiSig) -> Result<(), InvalidSig> {
         let msg = Sha256::digest(text);
         let digest = Sha256::digest(msg);
@@ -232,14 +246,6 @@ impl SsiPub {
 
     pub fn fingerprint(self) -> Fingerprint {
         Fingerprint([self.key[0], self.key[1], self.key[2], self.key[3], self.key[4], self.key[5]])
-    }
-
-    pub fn to_byte_array(&self) -> [u8; 32] {
-        let mut buf = [0u8; 32];
-        buf[0..30].copy_from_slice(self.key.as_slice());
-        buf[30] = self.algo.into();
-        buf[31] = self.chain.into();
-        buf
     }
 }
 

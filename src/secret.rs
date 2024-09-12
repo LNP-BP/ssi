@@ -61,6 +61,7 @@ pub struct EncryptedSecret {
     pub fp: Fingerprint,
     pub nonce: Nonce<Aes256Gcm>,
     pub algo: Algo,
+    pub chain: Chain,
     pub key: Vec<u8>,
 }
 
@@ -68,7 +69,9 @@ impl EncryptedSecret {
     pub fn reveal(&self, passwd: impl AsRef<str>) -> Result<SsiSecret, RevealError> {
         let sk = decrypt(&self.key, self.nonce, passwd.as_ref())?;
         match self.algo {
-            Algo::Ed25519 => Ok(ec25519::SecretKey::from_slice(&sk)?.into()),
+            Algo::Ed25519 => {
+                Ok(Ed25519Secret::with(self.chain, ec25519::SecretKey::from_slice(&sk)?).into())
+            }
             Algo::Bip340 => Ok(secp256k1::SecretKey::from_slice(&sk)?.into()),
             Algo::Other(algo) => Err(RevealError::Unsupported(algo)),
         }
@@ -148,10 +151,8 @@ impl Display for EncryptedSecret {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, From)]
 pub enum SsiSecret {
     #[from]
-    #[from(secp256k1::SecretKey)]
     Bip340(Bip340Secret),
     #[from]
-    #[from(ec25519::SecretKey)]
     Ed25519(Ed25519Secret),
 }
 
@@ -226,8 +227,8 @@ impl SsiSecret {
 
     pub fn secret_bytes(&self) -> [u8; 32] {
         match self {
-            SsiSecret::Bip340(sk) => sk.0.secret_bytes(),
-            SsiSecret::Ed25519(sk) => sk.0.seed().scalar(),
+            SsiSecret::Bip340(sk) => sk.key.secret_bytes(),
+            SsiSecret::Ed25519(sk) => sk.key.seed().scalar(),
         }
     }
 }
